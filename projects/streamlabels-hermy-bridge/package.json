@@ -1,0 +1,16 @@
+{
+  "name": "@hermy-tv/streamlabels-hermy-bridge",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Watch stream alert events and generate Hermy-TV reactions for OBS.",
+  "scripts": {
+    "start": "node bridge.mjs",
+    "obs": "node obs-controller.mjs",
+    "streamlabs:receiver": "node streamlabs-widget-receiver.mjs",
+    "check": "node --check bridge.mjs && node --check obs-controller.mjs && node --check streamlabs-widget-receiver.mjs"
+  },
+  "dependencies": {
+    "obs-websocket-js": "^5.0.8"
+  }
+}
