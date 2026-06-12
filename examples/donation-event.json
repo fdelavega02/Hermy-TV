@@ -1,0 +1,9 @@
+{
+  "source": "streamlabs-widget",
+  "type": "donation",
+  "eventId": "example-donation-001",
+  "displayName": "DemoViewer",
+  "amount": 10,
+  "currency": "USD",
+  "message": "show banner"
+}

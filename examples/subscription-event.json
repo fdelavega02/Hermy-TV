@@ -1,0 +1,9 @@
+{
+  "source": "twitch-eventsub",
+  "type": "subscription_message",
+  "eventId": "example-sub-001",
+  "displayName": "ReturningViewer",
+  "tier": "1000",
+  "cumulativeMonths": 6,
+  "message": "camera time"
+}

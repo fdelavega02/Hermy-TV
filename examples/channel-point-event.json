@@ -1,0 +1,8 @@
+{
+  "source": "twitch-channel-points",
+  "type": "channel_point_redemption",
+  "eventId": "example-points-001",
+  "displayName": "PointSpender",
+  "rewardTitle": "Talk to Hermy",
+  "message": "say something dramatic"
+}
