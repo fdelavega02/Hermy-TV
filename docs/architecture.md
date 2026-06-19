@@ -4,7 +4,7 @@ Hermy-TV is designed as a local stream assistant, not a hosted bot with broad ac
 
 ## High-Level Flow
 
-1. Event intake receives donation, subscription, resubscription, follow, raid, channel-point, or widget events.
+1. Event intake receives donation, subscription, resubscription, follow, raid, channel-point, widget, or YouTube paid-chat events.
 2. The receiver normalizes the event into a small internal shape: source, display name, amount or tier, message text, and event id when available.
 3. Duplicate and empty events are ignored.
 4. Text is treated as untrusted viewer input.
@@ -22,8 +22,9 @@ Public documentation should describe categories and patterns. Private stream set
 ## Main Components
 
 - `bridge.mjs`: watches local label/event files and routes reactions.
-- `streamlabs-widget-receiver.mjs`: receives Streamlabs widget events and Twitch EventSub events.
+- `streamlabs-widget-receiver.mjs`: receives Streamlabs widget events, Twitch EventSub events, and optional YouTube Super Chat/Super Sticker events.
 - `obs-controller.mjs`: sends constrained OBS WebSocket requests.
+- `ollama-memory.mjs`: stores local model context and repetition history in private generated files.
 - `streamlabs-custom-widget.js`: browser-side widget snippet that forwards Streamlabs events to the local receiver.
 - `config.example.json`: fake, placeholder-only config shape.
 

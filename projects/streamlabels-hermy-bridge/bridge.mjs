@@ -4,6 +4,17 @@ import { existsSync, mkdirSync, watch } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  appendRecentResponse,
+  appendSharedMemory,
+  buildAntiRepeatInstruction,
+  looksRepeatedResponse,
+  memoryBlock,
+  readRecentResponses,
+  readSharedMemory,
+} from './ollama-memory.mjs';
+import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
+import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
 const CONFIG_PATH = process.env.STREAMLABELS_HERMY_CONFIG || path.join(ROOT, 'config.json');
@@ -21,7 +32,20 @@ const DEFAULTS = {
     sessionId: 'streamlabels-hermy-reactions',
     thinking: 'low',
     timeoutSeconds: 120,
-    prompt: "You are Hermy-TV, a Twitch/OBS stream assistant. React live on stream. Keep the reaction stream-safe, natural, funny when appropriate, and 1-2 short sentences. Do not use markdown.",
+    prompt: "You are Hermy-TV, a Twitch.tv stream cohost. React live on stream. Talk normally in plain, casual English. Keep the reaction stream-safe, natural, and 1-2 short sentences. Do not use markdown.",
+  },
+  ollama: {
+    enabled: false,
+    fallbackToOpenClaw: true,
+    endpoint: 'http://127.0.0.1:11434/api/generate',
+    model: 'llama3.2:3b',
+    timeoutSeconds: 30,
+    loreFile: './ollama-tv-lore.md',
+    prompt: "You are Hermy-TV, a Twitch.tv stream cohost. Talk normally in plain, casual English. Keep the reaction natural, stream-safe, and 1-2 short sentences. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
+  },
+  memory: {
+    enabled: true,
+    dir: './memory/ollama-tv',
   },
   output: {
     reactionFile: './output/hermy_reaction.txt',
@@ -61,9 +85,11 @@ async function loadConfig() {
   if (existsSync(CONFIG_PATH)) {
     cfg = JSON.parse(await readFile(CONFIG_PATH, 'utf8'));
   }
-  return {
+  const merged = {
     streamlabels: { ...DEFAULTS.streamlabels, ...(cfg.streamlabels ?? {}) },
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
+    ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
+    memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
     output: { ...DEFAULTS.output, ...(cfg.output ?? {}) },
     tts: {
       ...DEFAULTS.tts,
@@ -72,6 +98,14 @@ async function loadConfig() {
       voiceSettings: { ...DEFAULTS.tts.voiceSettings, ...((cfg.tts ?? {}).voiceSettings ?? {}) },
     },
   };
+  merged.ollama.lore = await readOllamaLore(merged.ollama);
+  return merged;
+}
+
+async function readOllamaLore(ollamaCfg) {
+  if (!ollamaCfg?.loreFile) return '';
+  const lorePath = resolveLocal(ollamaCfg.loreFile);
+  return (await readFile(lorePath, 'utf8').catch(() => '')).trim();
 }
 
 function hash(value) {
@@ -103,9 +137,11 @@ async function readEventFile(cfg, fileName) {
   };
 }
 
-function runOpenClaw(cfg, event) {
-  const message = [
-    cfg.openclaw.prompt,
+function buildStreamlabelsPrompt(cfg, event, prompt, lore = '', sharedMemory = '') {
+  return [
+    prompt,
+    lore ? `\nHermy-TV lore:\n${lore}` : '',
+    memoryBlock(sharedMemory),
     '',
     'Streamlabels event:',
     `File: ${event.fileName}`,
@@ -113,6 +149,10 @@ function runOpenClaw(cfg, event) {
     '',
     'Return only the stream reaction text.',
   ].join('\n');
+}
+
+function runOpenClaw(cfg, event) {
+  const message = buildStreamlabelsPrompt(cfg, event, cfg.openclaw.prompt);
 
   const args = [
     'agent',
@@ -143,6 +183,67 @@ function runOpenClaw(cfg, event) {
       resolve(extractAgentText(stdout));
     });
   });
+}
+
+async function runOllama(cfg, event) {
+  const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
+  const prompt = buildStreamlabelsPrompt(cfg, event, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory);
+  const recentResponses = await readRecentResponses(cfg.memory, ROOT);
+  const response = appendGamblingDisclaimer(cleanHermyResponse(await postOllama(cfg, prompt)), event.text);
+  if (!looksRepeatedResponse(response, recentResponses)) {
+    await appendRecentResponse(cfg.memory, ROOT, response);
+    return response;
+  }
+
+  const retry = appendGamblingDisclaimer(cleanHermyResponse(await postOllama(cfg, `${prompt}${buildAntiRepeatInstruction(recentResponses)}`)), event.text);
+  await appendRecentResponse(cfg.memory, ROOT, retry);
+  return retry;
+}
+
+async function postOllama(cfg, prompt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(cfg.ollama.timeoutSeconds || 30) * 1000);
+
+  try {
+    const response = await fetch(cfg.ollama.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: cfg.ollama.model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.55,
+          top_p: 0.8,
+          num_predict: 80,
+        },
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`ollama ${response.status}: ${await response.text()}`);
+    }
+    const body = await response.json();
+    return String(body.response ?? '').trim();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generateReaction(cfg, event, fallback) {
+  const override = banterOverrideForText(event.text);
+  if (override) return override;
+
+  if (cfg.ollama.enabled) {
+    try {
+      const reaction = await runOllama(cfg, event);
+      if (reaction) return reaction;
+    } catch (err) {
+      console.error('[streamlabels-hermy] ollama reaction failed:', err.message);
+      if (!cfg.ollama.fallbackToOpenClaw) return fallback;
+    }
+  }
+  return cfg.openclaw.enabled ? await runOpenClaw(cfg, event) : fallback;
 }
 
 function extractAgentText(stdout) {
@@ -179,12 +280,18 @@ async function writeReaction(cfg, event, reaction) {
   const reactionFile = resolveLocal(cfg.output.reactionFile);
   const lastEventFile = resolveLocal(cfg.output.lastEventFile);
   mkdirSync(path.dirname(reactionFile), { recursive: true });
-  await writeFile(reactionFile, `${reaction.trim()}\n`);
+  const renderedReaction = `${reaction.trim()}\n`;
+  await writeFile(reactionFile, renderedReaction);
   await writeJson(lastEventFile, { event, reaction });
 
   if (Number(cfg.output.clearAfterMs) > 0) {
     setTimeout(() => {
-      writeFile(reactionFile, '').catch(err => console.error('[streamlabels-hermy] clear failed:', err.message));
+      readFile(reactionFile, 'utf8')
+        .then(current => {
+          if (current === renderedReaction) return writeFile(reactionFile, '');
+          return null;
+        })
+        .catch(err => console.error('[streamlabels-hermy] clear failed:', err.message));
     }, Number(cfg.output.clearAfterMs)).unref?.();
   }
 }
@@ -261,8 +368,15 @@ function enqueueTts(cfg, event, reaction) {
 
 async function reactToEvent(cfg, event) {
   const fallback = `Hermy saw this update: ${event.text}`;
-  const reaction = cfg.openclaw.enabled ? await runOpenClaw(cfg, event) : fallback;
+  const reaction = await generateReaction(cfg, event, fallback);
   await writeReaction(cfg, event, reaction || fallback);
+  if (!isBanterOverrideText(event.text) && !isBanterOverrideText(reaction || fallback)) {
+    await appendSharedMemory(cfg.memory, ROOT, {
+      source: 'streamlabels',
+      user: `${event.fileName}: ${event.text}`,
+      assistant: reaction || fallback,
+    });
+  }
   enqueueTts(cfg, event, reaction || fallback);
   console.log(`[streamlabels-hermy] ${event.fileName}: ${event.text}`);
   console.log(`[streamlabels-hermy] reaction: ${reaction || fallback}`);

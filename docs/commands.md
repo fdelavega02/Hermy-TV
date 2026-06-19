@@ -7,7 +7,7 @@ Commands are grouped by what they are allowed to touch. Viewer text never become
 - Source visibility: show, hide, or toggle a configured OBS source.
 - Scene switching: switch to a configured scene alias.
 - Text/reaction output: write a short Hermy-TV reaction to an OBS-readable file.
-- Temporary stream effects: enable a known filter or temporarily adjust a value within configured limits.
+- Temporary stream effects: enable a known filter, apply an optional transform, or temporarily adjust a value within configured limits.
 - Stream control: optional high-trust tier for actions such as ending a stream, disabled unless explicitly configured.
 
 ## Event Tiers
@@ -31,6 +31,7 @@ Commands are grouped by what they are allowed to touch. Viewer text never become
 - `hide banner`
 - `switch to gameplay`
 - `toggle grayscale`
+- `flip camera upside down`
 - `raise bitrate`
 
 These are examples only. Live aliases belong in private config.

@@ -6,6 +6,17 @@ import http from 'node:http';
 import OBSWebSocket from 'obs-websocket-js';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  appendRecentResponse,
+  appendSharedMemory,
+  buildAntiRepeatInstruction,
+  looksRepeatedResponse,
+  memoryBlock,
+  readRecentResponses,
+  readSharedMemory,
+} from './ollama-memory.mjs';
+import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
+import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
 const CONFIG_PATH = process.env.STREAMLABELS_HERMY_CONFIG || path.join(ROOT, 'config.json');
@@ -37,13 +48,13 @@ const DEFAULTS = {
     passwordFile: '~/.config/obs-studio/plugin_config/obs-websocket/config.json',
     requestTimeoutMs: 5000,
   },
-  obsCommands: {
-    enabled: true,
-    allowStreamControl: true,
-    allowBitrateControl: true,
-    grayscale: {
+    obsCommands: {
       enabled: true,
-      commandPatterns: ['grayscale', 'gray', 'grey', 'black and white', 'black-and-white', 'bw', 'b&w'],
+      allowStreamControl: true,
+      allowBitrateControl: true,
+      grayscale: {
+      enabled: true,
+      commandPatterns: ['grayscale', 'gray', 'grey', 'black and white', 'black-and-white', 'black and white mode', 'vintage', 'old movie', 'old movie mode', '1920s', "1920's", 'the 1920s', 'retro', 'silent film', 'old film', 'bw', 'b&w'],
       filterName: 'Grayscale',
       filterKind: 'color_filter',
       sourceAliases: ['camera', 'cam', 'banner', 'background'],
@@ -56,13 +67,18 @@ const DEFAULTS = {
         opacity: 1,
         color_add: 0,
         color_multiply: 16777215,
+        },
       },
-    },
-    bitrate: {
-      min: 500,
-      max: 8000,
-      restoreAfterMs: 60000,
-      profileCategory: 'SimpleOutput',
+      transform: {
+        enabled: true,
+        commandPatterns: ['upside down', 'flip 180', 'flip it 180', 'rotate 180', 'turn 180', 'turn upside down', 'turn it upside down', 'flip horizontally', 'flip it horizontally', 'flip vertical', 'flip vertically', 'flip it vertically', 'mirror horizontally', 'mirror vertically', 'back to normal', 'back to upright', 'right side up', 'normal'],
+        sourceAliases: ['camera', 'cam', 'banner', 'background', 'gameplay'],
+      },
+      bitrate: {
+        min: 500,
+        max: 8000,
+        restoreAfterMs: 60000,
+        profileCategory: 'SimpleOutput',
       profileParameter: 'VBitrate',
     },
     sourceAliases: {
@@ -70,9 +86,11 @@ const DEFAULTS = {
       cam: { scene: 'Main', source: 'Camera' },
       banner: { scene: 'Main', source: 'Banner' },
       background: { scene: 'Main', source: 'Background' },
+      gameplay: { scene: 'Main', source: 'Game Capture' },
     },
     sceneAliases: {
       main: 'Main',
+      gameplay: 'Gameplay',
     },
   },
   openclaw: {
@@ -83,6 +101,19 @@ const DEFAULTS = {
     timeoutSeconds: 120,
     prompt: "You are Hermy-TV, a Twitch/OBS stream assistant. React live on stream in 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
   },
+  ollama: {
+    enabled: false,
+    fallbackToOpenClaw: true,
+    endpoint: 'http://127.0.0.1:11434/api/generate',
+    model: 'llama3.2:3b',
+    timeoutSeconds: 30,
+    loreFile: './ollama-tv-lore.md',
+    prompt: "You are Hermy-TV, a Twitch.tv stream cohost. Talk normally in plain, casual English. Keep the reaction natural, stream-safe, and 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
+  },
+  memory: {
+    enabled: true,
+    dir: './memory/ollama-tv',
+  },
   output: {
     reactionFile: './output/hermy_reaction.txt',
     lastEventFile: './output/last_streamlabs_donation_event.json',
@@ -91,6 +122,8 @@ const DEFAULTS = {
     twitchSubscriptionRawEventsFile: './output/raw_twitch_subscription_events.jsonl',
     twitchChannelPointLastEventFile: './output/last_twitch_channel_point_event.json',
     twitchChannelPointRawEventsFile: './output/raw_twitch_channel_point_events.jsonl',
+    youtubeSuperChatLastEventFile: './output/last_youtube_super_chat_event.json',
+    youtubeSuperChatRawEventsFile: './output/raw_youtube_super_chat_events.jsonl',
     audioDir: './output/audio',
     clearAfterMs: 15000,
   },
@@ -126,6 +159,17 @@ const DEFAULTS = {
     dedupeSeconds: 30,
     rewardRoutes: [],
   },
+  youtubeSuperChats: {
+    enabled: false,
+    apiKeyEnv: 'YOUTUBE_API_KEY',
+    accessTokenEnv: 'YOUTUBE_ACCESS_TOKEN',
+    liveChatId: '',
+    broadcastVideoId: '',
+    hl: 'en',
+    pollMs: 3000,
+    dedupeSeconds: 30,
+    maxResults: 200,
+  },
 };
 
 function resolveLocal(p) {
@@ -138,7 +182,7 @@ async function loadConfig() {
   if (existsSync(CONFIG_PATH)) {
     cfg = JSON.parse(await readFile(CONFIG_PATH, 'utf8'));
   }
-  return {
+  const merged = {
     widgetReceiver: { ...DEFAULTS.widgetReceiver, ...(cfg.widgetReceiver ?? {}) },
     streamlabelsRecentEvents: { ...DEFAULTS.streamlabelsRecentEvents, ...(cfg.streamlabelsRecentEvents ?? {}) },
     donationRules: { ...DEFAULTS.donationRules, ...(cfg.donationRules ?? {}) },
@@ -157,11 +201,20 @@ async function loadConfig() {
           ? (cfg.obsCommands ?? {}).grayscale.sourceAliases
           : DEFAULTS.obsCommands.grayscale.sourceAliases,
       },
+      transform: {
+        ...DEFAULTS.obsCommands.transform,
+        ...((cfg.obsCommands ?? {}).transform ?? {}),
+        sourceAliases: Array.isArray((cfg.obsCommands ?? {}).transform?.sourceAliases)
+          ? (cfg.obsCommands ?? {}).transform.sourceAliases
+          : DEFAULTS.obsCommands.transform.sourceAliases,
+      },
       bitrate: { ...DEFAULTS.obsCommands.bitrate, ...((cfg.obsCommands ?? {}).bitrate ?? {}) },
       sourceAliases: { ...DEFAULTS.obsCommands.sourceAliases, ...((cfg.obsCommands ?? {}).sourceAliases ?? {}) },
       sceneAliases: { ...DEFAULTS.obsCommands.sceneAliases, ...((cfg.obsCommands ?? {}).sceneAliases ?? {}) },
     },
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
+    ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
+    memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
     output: { ...DEFAULTS.output, ...(cfg.output ?? {}) },
     tts: {
       ...DEFAULTS.tts,
@@ -174,7 +227,19 @@ async function loadConfig() {
       ...(cfg.twitchChannelPoints ?? {}),
       rewardRoutes: Array.isArray(cfg.twitchChannelPoints?.rewardRoutes) ? cfg.twitchChannelPoints.rewardRoutes : DEFAULTS.twitchChannelPoints.rewardRoutes,
     },
+    youtubeSuperChats: {
+      ...DEFAULTS.youtubeSuperChats,
+      ...(cfg.youtubeSuperChats ?? {}),
+    },
   };
+  merged.ollama.lore = await readOllamaLore(merged.ollama);
+  return merged;
+}
+
+async function readOllamaLore(ollamaCfg) {
+  if (!ollamaCfg?.loreFile) return '';
+  const lorePath = resolveLocal(ollamaCfg.loreFile);
+  return (await readFile(lorePath, 'utf8').catch(() => '')).trim();
 }
 
 function expandHome(p) {
@@ -253,6 +318,12 @@ function parseDonationAmount(value) {
   return normalized ? Number(normalized[0]) : 0;
 }
 
+function parseMicrosAmount(amountMicros) {
+  const micros = Number(amountMicros ?? 0);
+  if (!Number.isFinite(micros) || micros <= 0) return 0;
+  return micros / 1_000_000;
+}
+
 function normalizeRecentEvent(raw) {
   return normalizeWidgetEvent({
     detail: {
@@ -262,26 +333,64 @@ function normalizeRecentEvent(raw) {
   });
 }
 
+function normalizeYouTubeSuperChatEvent(raw) {
+  const snippet = raw?.snippet ?? {};
+  const author = raw?.authorDetails ?? {};
+  const type = String(snippet.type ?? '').toLowerCase();
+  if (type !== 'superchatevent' && type !== 'superstickerevent') return null;
+
+  const isSticker = type === 'superstickerevent';
+  const details = isSticker ? (snippet.superStickerDetails ?? {}) : (snippet.superChatDetails ?? {});
+  const amountMicros = Number(details.amountMicros ?? 0);
+  const amount = parseMicrosAmount(amountMicros);
+  const amountDisplayString = String(details.amountDisplayString ?? '').trim();
+  const currency = String(details.currency ?? '').trim();
+  const amountLabel = amountDisplayString || (amount > 0
+    ? `${amount.toFixed(2)}${currency ? ` ${currency}` : ''}`
+    : '');
+
+  return {
+    source: 'youtube-live-chat',
+    category: isSticker ? 'youtube-super-sticker' : 'youtube-super-chat',
+    type,
+    kind: isSticker ? 'superSticker' : 'superChat',
+    name: String(author.displayName ?? 'Someone'),
+    authorChannelId: String(author.channelId ?? snippet.authorChannelId ?? ''),
+    amount: amountLabel,
+    numericAmount: amount,
+    currency,
+    message: String((isSticker ? '' : details.userComment) ?? '').trim(),
+    liveChatId: String(snippet.liveChatId ?? ''),
+    raw,
+    seenAt: new Date().toISOString(),
+  };
+}
+
 function hash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+function describeStreamEvent(event) {
+  if (event.category === 'donation') {
+    return `${event.name}${event.amount ? ` donated ${event.amount}` : ' donated'}`;
+  }
+  if (event.category === 'follow') {
+    return `${event.name} followed`;
+  }
+  if (event.category === 'subscription' || event.category === 'resubscription') {
+    return `${event.name} ${event.category === 'resubscription' ? 'resubscribed' : 'subscribed'}`;
+  }
+  if (event.category === 'youtube-super-chat') {
+    return `${event.name}${event.amount ? ` sent ${event.amount} in Super Chat` : ' sent a Super Chat'}`;
+  }
+  if (event.category === 'youtube-super-sticker') {
+    return `${event.name}${event.amount ? ` sent ${event.amount} in Super Sticker` : ' sent a Super Sticker'}`;
+  }
+  return `${event.name} sent a stream event`;
+}
+
 function runOpenClaw(cfg, event) {
-  const eventLine = event.category === 'donation'
-    ? `${event.name}${event.amount ? ` donated ${event.amount}` : ' donated'}`
-    : event.category === 'follow'
-      ? `${event.name} followed`
-      : `${event.name} ${event.category === 'resubscription' ? 'resubscribed' : 'subscribed'}`;
-  const message = [
-    cfg.openclaw.prompt,
-    '',
-    `${event.category ?? 'stream'} event:`,
-    eventLine,
-    event.message ? `Message: ${event.message}` : 'Message: no viewer message received',
-    event.obsCommandResult ? `OBS command result: ${event.obsCommandResult}` : '',
-    '',
-    'Return only the stream reaction text.',
-  ].join('\n');
+  const message = buildStreamEventPrompt(cfg.openclaw.prompt, event);
 
   const args = [
     'agent',
@@ -312,6 +421,95 @@ function runOpenClaw(cfg, event) {
       resolve(extractAgentText(stdout));
     });
   });
+}
+
+function buildStreamEventPrompt(basePrompt, event, lore = '', sharedMemory = '') {
+  const eventLine = describeStreamEvent(event);
+  return [
+    basePrompt,
+    lore ? `\nHermy-TV lore:\n${lore}` : '',
+    memoryBlock(sharedMemory),
+    '',
+    `${event.category ?? 'stream'} event:`,
+    eventLine,
+    event.message ? `Message: ${event.message}` : 'Message: no viewer message received',
+    event.obsCommandResult ? `OBS command result: ${event.obsCommandResult}` : '',
+    '',
+    'Return only the stream reaction text.',
+  ].join('\n');
+}
+
+async function runOllamaPrompt(cfg, prompt) {
+  const recentResponses = await readRecentResponses(cfg.memory, ROOT);
+  const response = cleanHermyResponse(await postOllamaPrompt(cfg, prompt));
+  if (!looksRepeatedResponse(response, recentResponses)) {
+    await appendRecentResponse(cfg.memory, ROOT, response);
+    return response;
+  }
+
+  const retry = cleanHermyResponse(await postOllamaPrompt(cfg, `${prompt}${buildAntiRepeatInstruction(recentResponses)}`));
+  await appendRecentResponse(cfg.memory, ROOT, retry);
+  return retry;
+}
+
+function gamblingContextForEvent(event) {
+  return [
+    event?.message,
+    event?.userInput,
+    event?.text,
+    event?.raw?.message,
+    event?.raw?.user_input,
+  ].filter(Boolean).join('\n');
+}
+
+async function postOllamaPrompt(cfg, prompt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(cfg.ollama.timeoutSeconds || 30) * 1000);
+
+  try {
+    const response = await fetch(cfg.ollama.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: cfg.ollama.model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.55,
+          top_p: 0.8,
+          num_predict: 80,
+        },
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`ollama ${response.status}: ${await response.text()}`);
+    }
+    const body = await response.json();
+    return String(body.response ?? '').trim();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generateStreamReaction(cfg, event, fallback) {
+  const override = banterOverrideForText(event.message);
+  if (override) return override;
+
+  if (cfg.ollama.enabled) {
+    try {
+      const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
+      const reaction = appendGamblingDisclaimer(
+        await runOllamaPrompt(cfg, buildStreamEventPrompt(cfg.ollama.prompt, event, cfg.ollama.lore, sharedMemory)),
+        gamblingContextForEvent(event),
+      );
+      if (reaction) return reaction;
+    } catch (err) {
+      console.error('[streamlabs-widget] ollama reaction failed:', err.message);
+      if (!cfg.ollama.fallbackToOpenClaw) return fallback;
+    }
+  }
+  return cfg.openclaw.enabled ? await runOpenClaw(cfg, event) : fallback;
 }
 
 function extractAgentText(stdout) {
@@ -348,12 +546,18 @@ async function writeReactionToFile(cfg, event, reaction, lastEventFilePath) {
   const reactionFile = resolveLocal(cfg.output.reactionFile);
   const lastEventFile = resolveLocal(lastEventFilePath);
   mkdirSync(path.dirname(reactionFile), { recursive: true });
-  await writeFile(reactionFile, `${reaction.trim()}\n`);
+  const renderedReaction = `${reaction.trim()}\n`;
+  await writeFile(reactionFile, renderedReaction);
   await writeJson(lastEventFile, { event, reaction });
 
   if (Number(cfg.output.clearAfterMs) > 0) {
     setTimeout(() => {
-      writeFile(reactionFile, '').catch(err => console.error('[streamlabs-widget] clear failed:', err.message));
+      readFile(reactionFile, 'utf8')
+        .then(current => {
+          if (current === renderedReaction) return writeFile(reactionFile, '');
+          return null;
+        })
+        .catch(err => console.error('[streamlabs-widget] clear failed:', err.message));
     }, Number(cfg.output.clearAfterMs)).unref?.();
   }
 }
@@ -428,6 +632,8 @@ function playAudio(cfg, audioFile) {
 let ttsQueue = Promise.resolve();
 let bitrateRestoreTimer = null;
 let bitrateRestoreValue = null;
+let cachedObsClient = null;
+let cachedObsConnectPromise = null;
 
 function getEventArtifactName(event, fallback = 'event') {
   const rawName = event?.fileName || `${event?.source || fallback}-${event?.category || event?.type || fallback}`;
@@ -436,7 +642,7 @@ function getEventArtifactName(event, fallback = 'event') {
 
 function enqueueTts(cfg, event, reaction) {
   if (!cfg.tts.enabled) return;
-  enqueueSpeechTts(cfg, buildDonationSpeech(cfg, event, reaction), `${getEventArtifactName(event)}-streamlabs-donation`);
+  enqueueSpeechTts(cfg, buildEventSpeech(cfg, event, reaction), `${getEventArtifactName(event)}-${String(event.source || 'stream').replaceAll(/[^a-z0-9._-]/gi, '_')}`);
 }
 
 function enqueueSpeechTts(cfg, speechText, artifactName) {
@@ -468,20 +674,26 @@ function scheduleBitrateRestore(cfg, oldBitrate) {
       console.log(`[streamlabs-widget] restored stream bitrate to ${restoreTo} kbps`);
     } catch (err) {
       console.error('[streamlabs-widget] bitrate restore failed:', err.message);
-    } finally {
-      await obs.disconnect().catch(() => {});
     }
   }, restoreAfterMs);
   bitrateRestoreTimer.unref?.();
 }
 
 function buildDonationSpeech(cfg, event, reaction) {
+  return buildEventSpeech(cfg, event, reaction);
+}
+
+function buildEventSpeech(cfg, event, reaction) {
   if (!cfg.tts.readDonorMessageFirst || !event.message) return reaction;
   const messagePrefix = event.category === 'donation'
     ? cfg.tts.donorMessagePrefix
     : (event.category === 'follow'
       ? 'Follower message says:'
-      : 'Subscriber message says:');
+      : (event.category === 'subscription' || event.category === 'resubscription'
+        ? 'Subscriber message says:'
+        : (event.category === 'youtube-super-chat'
+          ? 'Super Chat message says:'
+          : 'Message says:')));
   return [
     messagePrefix,
     sanitizeForSpeech(event.message),
@@ -538,11 +750,28 @@ async function getObsPassword(cfg) {
 }
 
 async function connectObs(cfg) {
-  const obs = new OBSWebSocket();
-  await obs.connect(cfg.obs.address, await getObsPassword(cfg), {
-    requestTimeout: Number(cfg.obs.requestTimeoutMs) || 5000,
+  if (cachedObsClient) return cachedObsClient;
+  if (cachedObsConnectPromise) return cachedObsConnectPromise;
+
+  cachedObsConnectPromise = (async () => {
+    const obs = new OBSWebSocket();
+    await obs.connect(cfg.obs.address, await getObsPassword(cfg), {
+      requestTimeout: Number(cfg.obs.requestTimeoutMs) || 5000,
+    });
+    cachedObsClient = obs;
+    cachedObsConnectPromise = null;
+    return obs;
+  })().catch(err => {
+    cachedObsConnectPromise = null;
+    cachedObsClient = null;
+    throw err;
   });
-  return obs;
+
+  return cachedObsConnectPromise;
+}
+
+function clearCachedObsClient() {
+  cachedObsClient = null;
 }
 
 async function executeObsCommand(cfg, command) {
@@ -553,6 +782,10 @@ async function executeObsCommand(cfg, command) {
   try {
     if (command.type === 'grayscale') {
       return executeGrayscaleMode(cfg, obs, command);
+    }
+
+    if (command.type === 'transform') {
+      return executeTransformMode(cfg, obs, command);
     }
 
     if (command.type === 'bitrate') {
@@ -621,8 +854,11 @@ async function executeObsCommand(cfg, command) {
       sceneItemEnabled: enabled,
     });
     return `${enabled ? 'showed' : 'hid'} ${command.source}`;
+  } catch (err) {
+    clearCachedObsClient();
+    throw err;
   } finally {
-    await obs.disconnect();
+    // Keep the OBS websocket warm so later channel-point requests do not pay reconnect latency.
   }
 }
 
@@ -640,6 +876,74 @@ function getGrayscaleTargets(cfg) {
       return [];
     }),
   )];
+}
+
+function normalizePhrase(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function phraseToPattern(phrase) {
+  const tokens = normalizePhrase(phrase)
+    .split(' ')
+    .filter(Boolean)
+    .map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!tokens.length) return null;
+  return new RegExp(`\\b${tokens.join('\\s+')}\\b`, 'i');
+}
+
+function collectGrayscaleTargetCandidatesFromConfig(cfg, aliases = null) {
+  const targetAliases = Array.isArray(aliases)
+    ? aliases
+    : (Array.isArray(cfg.obsCommands.grayscale?.sourceAliases)
+      ? cfg.obsCommands.grayscale.sourceAliases
+      : []);
+  const candidates = [];
+  const seen = new Set();
+
+  for (const alias of targetAliases) {
+    const target = cfg.obsCommands.sourceAliases?.[alias];
+    if (!target) continue;
+    const sourceNames = [];
+    if (Array.isArray(target.sources)) sourceNames.push(...target.sources);
+    if (Array.isArray(target.source)) sourceNames.push(...target.source);
+    if (typeof target.source === 'string') sourceNames.push(target.source);
+
+    for (const sourceName of sourceNames) {
+      const key = `${alias}:${sourceName}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({ alias, sourceName, target });
+    }
+  }
+
+  return candidates.sort((left, right) => normalizePhrase(right.sourceName).length - normalizePhrase(left.sourceName).length);
+}
+
+function resolveGrayscaleTarget(cfg, message, aliases = null) {
+  const lower = normalizePhrase(message);
+  const matches = [];
+
+  for (const candidate of collectGrayscaleTargetCandidatesFromConfig(cfg, aliases)) {
+    const aliasPattern = phraseToPattern(candidate.alias);
+    const sourcePattern = phraseToPattern(candidate.sourceName);
+    if ((aliasPattern && aliasPattern.test(lower)) || (sourcePattern && sourcePattern.test(lower))) {
+      matches.push(candidate);
+    }
+  }
+
+  if (matches.length > 1) return { error: 'pick one target' };
+  if (!matches.length) return { error: 'missing target' };
+
+  const target = matches[0];
+  return {
+    alias: target.alias,
+    source: target.sourceName,
+    scene: target.target.scene,
+  };
 }
 
 function grayscaleFilterSettings(cfg) {
@@ -719,6 +1023,82 @@ async function executeGrayscaleMode(cfg, obs, command) {
   return `grayscale mode updated`;
 }
 
+function normalizeFlipMagnitude(value, fallback = 1) {
+  const magnitude = Math.abs(Number(value));
+  return Number.isFinite(magnitude) && magnitude > 0 ? magnitude : fallback;
+}
+
+function hasTransformIntent(lower) {
+  return /\b(?:upside\s+down|flip|rotate|mirror|horizontal|vertical|normal|upright|reset|restore|undo)\b/i.test(lower);
+}
+
+function sanitizeSceneItemTransform(transform) {
+  const nextTransform = { ...transform };
+  if (String(nextTransform.boundsType || '') === 'OBS_BOUNDS_NONE') {
+    delete nextTransform.boundsWidth;
+    delete nextTransform.boundsHeight;
+    delete nextTransform.boundsAlignment;
+  }
+  return nextTransform;
+}
+
+async function applySceneItemTransform(obs, sceneName, sourceName, update) {
+  const { sceneItemId } = await obs.call('GetSceneItemId', { sceneName, sourceName });
+  const current = await obs.call('GetSceneItemTransform', { sceneName, sceneItemId });
+  const currentTransform = current.sceneItemTransform ?? {};
+  const nextTransform = sanitizeSceneItemTransform({
+    ...currentTransform,
+    ...(update({ ...currentTransform }) ?? {}),
+  });
+  await obs.call('SetSceneItemTransform', {
+    sceneName,
+    sceneItemId,
+    sceneItemTransform: nextTransform,
+  });
+}
+
+async function executeTransformMode(cfg, obs, command) {
+  const sourceName = command?.source;
+  const sceneName = command?.scene || 'Main';
+  if (!sourceName) return 'transform mode needs a target source';
+
+  try {
+    await applySceneItemTransform(obs, sceneName, sourceName, current => {
+      if (command.action === 'reset') {
+        return {
+          rotation: 0,
+          scaleX: normalizeFlipMagnitude(current.scaleX, 1),
+          scaleY: normalizeFlipMagnitude(current.scaleY, 1),
+        };
+      }
+
+      if (command.action === 'flip-horizontal') {
+        return {
+          scaleX: -normalizeFlipMagnitude(current.scaleX, 1),
+        };
+      }
+
+      if (command.action === 'flip-vertical') {
+        return {
+          scaleY: -normalizeFlipMagnitude(current.scaleY, 1),
+        };
+      }
+
+      return {
+        rotation: 180,
+      };
+    });
+  } catch (err) {
+    console.error('[streamlabs-widget] transform mode failed:', err.message);
+    return `transform mode failed: ${err.message}`;
+  }
+
+  if (command.action === 'reset') return 'restored the source to normal';
+  if (command.action === 'flip-horizontal') return 'flipped the source horizontally';
+  if (command.action === 'flip-vertical') return 'flipped the source vertically';
+  return 'turned the source upside down';
+}
+
 async function precreateGrayscaleFilters(cfg) {
   const targets = getGrayscaleTargets(cfg);
   if (!targets.length) {
@@ -727,17 +1107,13 @@ async function precreateGrayscaleFilters(cfg) {
   }
 
   const obs = await connectObs(cfg);
-  try {
-    for (const sourceName of targets) {
-      await ensureGrayscaleFilter(obs, cfg, sourceName);
-    }
-    console.log(`[streamlabs-widget] grayscale filters precreated for ${targets.join(', ')}`);
-  } finally {
-    await obs.disconnect().catch(() => {});
+  for (const sourceName of targets) {
+    await ensureGrayscaleFilter(obs, cfg, sourceName);
   }
+  console.log(`[streamlabs-widget] grayscale filters precreated for ${targets.join(', ')}`);
 }
 
-function parseObsCommand(cfg, message) {
+async function parseObsCommand(cfg, message) {
   if (!cfg.obsCommands.enabled || !message) return null;
   const lower = String(message).toLowerCase();
 
@@ -766,28 +1142,48 @@ function parseObsCommand(cfg, message) {
       : [];
     const matched = patterns.some(pattern => lower.includes(String(pattern).toLowerCase()));
     if (matched) {
-      const targetChecks = [
-        ['games', /\bgames?\b/i],
-        ['banner', /\bbanner\b/i],
-        ['camera', /\bcamera\b/i],
-      ];
-      const targets = targetChecks.filter(([, pattern]) => pattern.test(lower)).map(([name]) => name);
-      if (targets.length > 1) {
-        return { type: 'grayscale', action: 'rejected', reason: 'pick one target' };
+      const target = resolveGrayscaleTarget(cfg, lower);
+      if (target.error) {
+        return { type: 'grayscale', action: 'rejected', reason: target.error };
       }
-      if (!targets.length) {
-        return { type: 'grayscale', action: 'rejected', reason: 'missing target' };
-      }
-      const target = targets[0];
-      const restoreColor = /\b(?:off|disable|turn\s+off|restore\s+color|back\s+to\s+color|color\s+back|normal(?:\s+color)?|put\s+back\s+in\s+color)\b/i.test(lower);
-      const enableGrayscale = /\b(?:on|enable|turn\s+on|black\s+and\s+white|grayscale|gray|grey)\b/i.test(lower);
+      const restoreColor = /\b(?:off|disable|turn\s+off|restore\s+color|bring\s+back\s+color|bring\s+the\s+color\s+back|back\s+to\s+color|back\s+to\s+normal|go\s+back\s+to\s+normal|color\s+back|give\s+.*\s+color\s+back|restore\s+.*\s+to\s+normal|return\s+.*\s+to\s+normal|normal(?:\s+color)?|put\s+back\s+in\s+color)\b/i.test(lower);
+      const enableGrayscale = /\b(?:on|enable|turn\s+on|black\s+and\s+white|black and white mode|vintage|old movie|old movie mode|1920s|the 1920s|1920's|grayscale|gray|grey)\b/i.test(lower);
       if (restoreColor) {
-        return { type: 'grayscale', action: 'disable', source: target };
+        return { type: 'grayscale', action: 'disable', source: target.source };
       }
       if (enableGrayscale) {
-        return { type: 'grayscale', action: 'enable', source: target };
+        return { type: 'grayscale', action: 'enable', source: target.source };
       }
-      return { type: 'grayscale', action: 'enable', source: target };
+      return { type: 'grayscale', action: 'enable', source: target.source };
+    }
+  }
+
+  if (hasTransformIntent(lower)) {
+    if (!cfg.obsCommands.transform?.enabled) {
+      return { type: 'transform', action: 'disabled' };
+    }
+    if (cfg.obsCommands.transform?.enabled) {
+      const target = resolveGrayscaleTarget(cfg, lower, cfg.obsCommands.transform.sourceAliases);
+      if (target.error) {
+        return { type: 'transform', action: 'rejected', reason: target.error };
+      }
+
+      if (/\b(?:reset(?:\s+transform)?|reset\s+(?:it|the\s+(?:camera|source|item))|restore(?:\s+(?:it|the\s+(?:camera|source|item)))?|undo\s+(?:flip|rotation)|put\s+back(?:\s+to\s+normal)?|back\s+to\s+normal|back\s+to\s+upright|right\s+side\s+up|normal)\b/i.test(lower)) {
+        return { type: 'transform', action: 'reset', source: target.source };
+      }
+      if (/\b(?:flip\s+(?:it\s+)?horizontally|mirror\s+horizontally)\b/i.test(lower)) {
+        return { type: 'transform', action: 'flip-horizontal', source: target.source };
+      }
+      if (/\bmirror\b/i.test(lower)) {
+        return { type: 'transform', action: 'flip-horizontal', source: target.source };
+      }
+      if (/\b(?:flip\s+(?:it\s+)?vertically|flip\s+vertical|mirror\s+vertically)\b/i.test(lower)) {
+        return { type: 'transform', action: 'flip-vertical', source: target.source };
+      }
+      if (/\b(?:upside\s+down|flip\s+it\s+180|flip\s+180|rotate\s+180|turn\s+180|turn\s+(?:it\s+)?upside\s+down)\b/i.test(lower)) {
+        return { type: 'transform', action: 'rotate-180', source: target.source };
+      }
+      return { type: 'transform', action: 'rotate-180', source: target.source };
     }
   }
 
@@ -837,6 +1233,12 @@ function explainObsCommandRejection(message) {
   if (/\bbitrate\b/i.test(lower)) {
     return 'Bitrate is allowed, but it has to be written as "set bitrate to N" and the number must be between 500 and 8000 kbps.';
   }
+  if (/\bgrayscale\b|\bgray\b|\bgrey\b|\bblack\s+and\s+white\b|\bblack\s+and\s+white\s+mode\b|\bvintage\b|\bold\s+movie\b|\b1920s\b|\b1920's\b|\bbw\b|\bb&w\b/i.test(lower)) {
+    return 'Say the specific target too, like "turn camera grayscale" or "turn gameplay black and white".';
+  }
+  if (/\b(?:upside\s+down|flip|rotate|mirror|horizontal|vertical)\b/i.test(lower)) {
+    return 'Flip and rotate commands are paused for now.';
+  }
   if (/\b(?:show|hide|toggle|turn on|turn off)\b/i.test(lower)) {
     return 'That did not match one of the whitelisted OBS sources or scenes.';
   }
@@ -847,10 +1249,10 @@ function explainObsCommandRejection(message) {
 }
 
 async function maybeExecuteObsCommand(cfg, event) {
-  const command = parseObsCommand(cfg, event.message);
+  const command = await parseObsCommand(cfg, event.message);
   if (!command) return null;
   const amount = Number(event.numericAmount);
-  const isDonation = event.category === 'donation';
+  const isDonation = event.category === 'donation' || event.category === 'youtube-super-chat' || event.category === 'youtube-super-sticker';
   const isSub = event.category === 'subscription' || event.category === 'resubscription';
   const isFollow = event.category === 'follow';
 
@@ -862,6 +1264,8 @@ async function maybeExecuteObsCommand(cfg, event) {
     } else if (!isSub && !isFollow) {
       return null;
     }
+  } else if (command.type === 'transform' && command.action === 'disabled') {
+    return 'Flip and rotate commands are paused for now.';
   } else if (isDonation) {
     if (amount < Number(cfg.donationRules.commandMinAmount)) return null;
   } else if (!isSub && !isFollow) {
@@ -869,6 +1273,11 @@ async function maybeExecuteObsCommand(cfg, event) {
   }
 
   return executeObsCommand(cfg, command);
+}
+
+function isPaidEventBelowMinimum(cfg, event) {
+  const paidEvent = event.category === 'donation' || event.category === 'youtube-super-chat' || event.category === 'youtube-super-sticker';
+  return paidEvent && Number(event.numericAmount) < Number(cfg.donationRules.minSpeakAmount);
 }
 
 async function appendTwitchChannelPointEvent(cfg, raw) {
@@ -953,15 +1362,17 @@ function findChannelPointRoute(cfg, reward) {
   return cfg.twitchChannelPoints.rewardRoutes.find(route => channelPointRouteMatches(route, reward)) ?? null;
 }
 
-function buildChannelPointPrompt(cfg, event, route) {
+function buildChannelPointPrompt(cfg, event, route, basePrompt = cfg.openclaw.prompt, lore = '', sharedMemory = '') {
   const action = route?.mode === 'obsCommand' || route?.mode === 'obs-command'
-    ? 'run a safe OBS command if appropriate'
+    ? 'react to the safe OBS command result'
     : 'talk back to the viewer';
   const obsNote = event.obsCommandResult?.includes('bitrate command rejected')
     ? 'If the OBS command was rejected because the bitrate number was out of range, say that bitrate is allowed but the value must be between 500 and 8000 kbps.'
     : '';
   return [
-    cfg.openclaw.prompt,
+    basePrompt,
+    lore ? `\nHermy-TV lore:\n${lore}` : '',
+    memoryBlock(sharedMemory),
     '',
     'Channel points redemption:',
     `Reward: ${event.reward.title || 'Untitled reward'}`,
@@ -979,7 +1390,10 @@ function buildChannelPointPrompt(cfg, event, route) {
 function buildChannelPointReactionFallback(event, route) {
   if (route?.mode === 'obsCommand' || route?.mode === 'obs-command') {
     if (String(event.obsCommandResult || '').includes('grayscale command rejected')) {
-      return `Pick either games or banner, ${event.name}. Grayscale needs a specific target.`;
+      return `Pick one specific target, ${event.name}. Grayscale needs a named source.`;
+    }
+    if (String(event.obsCommandResult || '').includes('transform mode failed')) {
+      return `OBS got weird on the transform, ${event.name}. Try that one again.`;
     }
     if (String(event.obsCommandResult || '').includes('bitrate command rejected')) {
       return `Bitrate is allowed, ${event.name}, but it has to be between 500 and 8000 kbps.`;
@@ -1013,9 +1427,11 @@ async function handleChannelPointRedemption(cfg, event) {
   try {
     if (route.mode === 'obsCommand' || route.mode === 'obs-command') {
       const commandSource = route.command || route.commandText || route.command_text || (route.commandFromUserInput ? event.userInput : event.userInput);
-      const command = parseObsCommand(cfg, commandSource);
+      const command = await parseObsCommand(cfg, commandSource);
       if (!command) {
         obsCommandResult = explainObsCommandRejection(commandSource);
+      } else if (command.type === 'transform' && command.action === 'disabled') {
+        obsCommandResult = 'Flip and rotate commands are paused for now.';
       } else if (command.type === 'stream') {
         obsCommandResult = 'Stream control is donation-only and requires a $50 donation or higher.';
       } else {
@@ -1037,21 +1453,53 @@ async function handleChannelPointRedemption(cfg, event) {
   const prompt = buildChannelPointPrompt(cfg, event, route);
   let reaction = fallback;
   try {
-    reaction = cfg.openclaw.enabled
-      ? await withTimeout(
-        runOpenClawForChannelPoint(cfg, prompt),
-        Math.max(7000, (Number(cfg.openclaw.timeoutSeconds) || 20) * 1000 + 2000),
-        'openclaw reaction timed out',
-      )
-      : fallback;
+    reaction = await generateChannelPointReaction(cfg, event, route, prompt, fallback);
   } catch (err) {
     console.error('[streamlabs-widget] channel point reaction generation failed:', err.message);
     reaction = fallback;
   }
   await writeReactionToFile(cfg, event, reaction || fallback, cfg.output.twitchChannelPointLastEventFile);
+  if (!isBanterOverrideText(event.userInput) && !isBanterOverrideText(reaction || fallback)) {
+    await appendSharedMemory(cfg.memory, ROOT, {
+      source: 'twitch-channel-points',
+      user: `Reward ${event.reward.title || 'Untitled reward'} from ${event.name}${event.userInput ? ` - ${event.userInput}` : ''}`,
+      assistant: reaction || fallback,
+      meta: { reward: event.reward.title, mode: route.mode },
+    });
+  }
   enqueueSpeechTts(cfg, reaction || fallback, `channel-points-${event.reward.title || 'reward'}`);
   console.log(`[streamlabs-widget] channel point: ${event.reward.title} ${event.name} ${event.userInput}`);
   console.log(`[streamlabs-widget] reaction: ${reaction || fallback}`);
+}
+
+async function generateChannelPointReaction(cfg, event, route, openClawPrompt, fallback) {
+  const override = banterOverrideForText(event.userInput);
+  if (override) return override;
+
+  const canUseOllama = route?.mode !== 'obsCommand' && route?.mode !== 'obs-command';
+  if (canUseOllama && cfg.ollama.enabled) {
+    try {
+      const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
+      const ollamaPrompt = buildChannelPointPrompt(cfg, event, route, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory);
+      const reaction = await withTimeout(
+        runOllamaPrompt(cfg, ollamaPrompt),
+        Math.max(7000, (Number(cfg.ollama.timeoutSeconds) || 20) * 1000 + 2000),
+        'ollama reaction timed out',
+      );
+      if (reaction) return appendGamblingDisclaimer(reaction, gamblingContextForEvent(event));
+    } catch (err) {
+      console.error('[streamlabs-widget] channel point ollama reaction failed:', err.message);
+      if (!cfg.ollama.fallbackToOpenClaw) return fallback;
+    }
+  }
+
+  return cfg.openclaw.enabled
+    ? await withTimeout(
+      runOpenClawForChannelPoint(cfg, openClawPrompt),
+      Math.max(7000, (Number(cfg.openclaw.timeoutSeconds) || 20) * 1000 + 2000),
+      'openclaw reaction timed out',
+    )
+    : fallback;
 }
 
 function getTwitchChannelPointsToken(cfg) {
@@ -1089,6 +1537,137 @@ async function runOpenClawForChannelPoint(cfg, prompt) {
       resolve(extractAgentText(stdout));
     });
   });
+}
+
+function getYouTubeCredentials(cfg) {
+  const apiKey = process.env[cfg.youtubeSuperChats.apiKeyEnv || 'YOUTUBE_API_KEY'] || cfg.youtubeSuperChats.apiKey || '';
+  const accessToken = process.env[cfg.youtubeSuperChats.accessTokenEnv || 'YOUTUBE_ACCESS_TOKEN'] || cfg.youtubeSuperChats.accessToken || '';
+  return {
+    apiKey: String(apiKey).trim(),
+    accessToken: String(accessToken).trim(),
+  };
+}
+
+function buildYouTubeFetchInit(cfg) {
+  const { apiKey, accessToken } = getYouTubeCredentials(cfg);
+  if (accessToken) {
+    return {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+      apiKey: '',
+    };
+  }
+  if (apiKey) {
+    return {
+      headers: {
+        Accept: 'application/json',
+      },
+      apiKey,
+    };
+  }
+  throw new Error(`missing YouTube API credentials; set ${cfg.youtubeSuperChats.apiKeyEnv} or ${cfg.youtubeSuperChats.accessTokenEnv}`);
+}
+
+async function fetchYouTubeJson(cfg, url) {
+  const { headers, apiKey } = buildYouTubeFetchInit(cfg);
+  const requestUrl = new URL(url);
+  if (apiKey) requestUrl.searchParams.set('key', apiKey);
+  const response = await fetch(requestUrl, { headers });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`YouTube API ${response.status}: ${body.slice(0, 500)}`);
+  }
+  return response.json();
+}
+
+async function resolveYouTubeLiveChatId(cfg) {
+  const directLiveChatId = String(cfg.youtubeSuperChats.liveChatId ?? '').trim();
+  if (directLiveChatId) return directLiveChatId;
+
+  const broadcastVideoId = String(cfg.youtubeSuperChats.broadcastVideoId ?? cfg.youtubeSuperChats.videoId ?? '').trim();
+  if (!broadcastVideoId) return '';
+
+  const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+  url.searchParams.set('part', 'liveStreamingDetails');
+  url.searchParams.set('id', broadcastVideoId);
+  const parsed = await fetchYouTubeJson(cfg, url);
+  const item = Array.isArray(parsed.items) ? parsed.items[0] : null;
+  return String(item?.liveStreamingDetails?.activeLiveChatId ?? '').trim();
+}
+
+async function appendYouTubeSuperChatEvent(cfg, raw) {
+  const rawEventsFile = resolveLocal(cfg.output.youtubeSuperChatRawEventsFile);
+  mkdirSync(path.dirname(rawEventsFile), { recursive: true });
+  await appendFile(rawEventsFile, `${JSON.stringify({ seenAt: new Date().toISOString(), raw })}\n`);
+}
+
+async function pollYouTubeSuperChats(cfg, seen) {
+  let liveChatId = await resolveYouTubeLiveChatId(cfg);
+  if (!liveChatId) {
+    console.error('[youtube-super-chat] startup skipped: no liveChatId or broadcastVideoId configured');
+    return;
+  }
+
+  let pageToken = '';
+  let nextDelayMs = Number(cfg.youtubeSuperChats.pollMs) || 3000;
+
+  const tick = async () => {
+    try {
+      liveChatId = liveChatId || await resolveYouTubeLiveChatId(cfg);
+      if (!liveChatId) {
+        console.error('[youtube-super-chat] poll skipped: no liveChatId resolved');
+        return;
+      }
+
+      const url = new URL('https://www.googleapis.com/youtube/v3/liveChat/messages');
+      url.searchParams.set('liveChatId', liveChatId);
+      url.searchParams.set('part', 'id,snippet,authorDetails');
+      url.searchParams.set('maxResults', String(cfg.youtubeSuperChats.maxResults || 200));
+      if (cfg.youtubeSuperChats.hl) url.searchParams.set('hl', String(cfg.youtubeSuperChats.hl));
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+      const parsed = await fetchYouTubeJson(cfg, url);
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      for (const raw of items) {
+        const event = normalizeYouTubeSuperChatEvent(raw);
+        if (!event) continue;
+
+        const key = hash({
+          id: raw.id,
+          type: event.type,
+          authorChannelId: event.authorChannelId,
+          amount: event.amount,
+          message: event.message,
+        });
+        const now = Date.now();
+        const lastSeen = seen.get(key);
+        if (lastSeen && now - lastSeen < Number(cfg.youtubeSuperChats.dedupeSeconds) * 1000) continue;
+        seen.set(key, now);
+
+        if (isPaidEventBelowMinimum(cfg, event)) {
+          console.log(`[youtube-super-chat] ignored below $${cfg.donationRules.minSpeakAmount}: ${event.name} ${event.amount}`);
+          continue;
+        }
+
+        await appendYouTubeSuperChatEvent(cfg, raw);
+        handleWidgetEvent(cfg, event, cfg.output.youtubeSuperChatLastEventFile, 'youtube-super-chat').catch(err => {
+          console.error('[youtube-super-chat] handling failed:', err.message);
+        });
+      }
+
+      pageToken = String(parsed.nextPageToken ?? pageToken);
+      const returnedPollMs = Number(parsed.pollingIntervalMillis) || 0;
+      nextDelayMs = Math.max(Number(cfg.youtubeSuperChats.pollMs) || 3000, returnedPollMs || 0);
+    } catch (err) {
+      console.error('[youtube-super-chat] poll failed:', err.message);
+    } finally {
+      setTimeout(tick, nextDelayMs).unref?.();
+    }
+  };
+
+  await tick();
 }
 
 async function withTimeout(promise, timeoutMs, label) {
@@ -1269,7 +1848,7 @@ function startTwitchEventSubListener(cfg) {
   connect();
 }
 
-async function handleWidgetEvent(cfg, event, lastEventFilePath = cfg.output.lastEventFile) {
+async function handleWidgetEvent(cfg, event, lastEventFilePath = cfg.output.lastEventFile, sourceLabel = 'streamlabs-widget') {
   const commandResult = await maybeExecuteObsCommand(cfg, event).catch(err => {
     console.error('[streamlabs-widget] OBS command failed:', err.message);
     return `OBS command failed: ${err.message}`;
@@ -1280,20 +1859,32 @@ async function handleWidgetEvent(cfg, event, lastEventFilePath = cfg.output.last
     ? (event.message ? `Thanks for the donation, ${event.name}. I saw your message.` : `Thanks for the donation, ${event.name}.`)
     : event.category === 'follow'
       ? (event.message ? `Thanks for the follow, ${event.name}. I saw your message.` : `Thanks for the follow, ${event.name}.`)
-    : `Thanks for the ${event.category}, ${event.name}. I saw your message.`;
-  const reaction = cfg.openclaw.enabled ? await runOpenClaw(cfg, event) : fallback;
+      : event.category === 'youtube-super-chat'
+        ? (event.message ? `Thanks for the Super Chat, ${event.name}. I saw your message.` : `Thanks for the Super Chat, ${event.name}.`)
+        : event.category === 'youtube-super-sticker'
+          ? `Thanks for the Super Sticker, ${event.name}.`
+          : `Thanks for the ${event.category}, ${event.name}. I saw your message.`;
+  const reaction = await generateStreamReaction(cfg, event, fallback);
   await writeReactionToFile(cfg, event, reaction || fallback, lastEventFilePath);
+  if (!isBanterOverrideText(event.message) && !isBanterOverrideText(reaction || fallback)) {
+    await appendSharedMemory(cfg.memory, ROOT, {
+      source: event.source || sourceLabel,
+      user: `${event.category}: ${event.name}${event.amount ? ` ${event.amount}` : ''}${event.message ? ` - ${event.message}` : ''}`,
+      assistant: reaction || fallback,
+      meta: { type: event.type, category: event.category },
+    });
+  }
   enqueueTts(cfg, event, reaction || fallback);
-  console.log(`[streamlabs-widget] ${event.category}: ${event.name} ${event.amount} ${event.message}`);
-  console.log(`[streamlabs-widget] reaction: ${reaction || fallback}`);
+  console.log(`[${sourceLabel}] ${event.category}: ${event.name} ${event.amount} ${event.message}`);
+  console.log(`[${sourceLabel}] reaction: ${reaction || fallback}`);
 }
 
 async function ingestDonationEvent(cfg, seen, raw, normalize) {
   await appendRawEvent(cfg, raw);
   const event = normalize(raw);
   if (!event) return { ignored: true };
-  if (event.category === 'donation' && Number(event.numericAmount) < Number(cfg.donationRules.minSpeakAmount)) {
-    console.log(`[streamlabs-widget] donation ignored below $${cfg.donationRules.minSpeakAmount}: ${event.name} ${event.amount}`);
+  if (isPaidEventBelowMinimum(cfg, event)) {
+    console.log(`[streamlabs-widget] ${event.category} ignored below $${cfg.donationRules.minSpeakAmount}: ${event.name} ${event.amount}`);
     return { ignored: true, belowMinimum: true };
   }
 
@@ -1379,6 +1970,11 @@ async function main() {
     if (cfg.streamlabelsRecentEvents.enabled) {
       pollRecentEvents(cfg, seen).catch(err => {
         console.error('[streamlabs-widget] recent-events startup failed:', err.message);
+      });
+    }
+    if (cfg.youtubeSuperChats.enabled) {
+      pollYouTubeSuperChats(cfg, new Map()).catch(err => {
+        console.error('[youtube-super-chat] startup failed:', err.message);
       });
     }
     if (cfg.twitchChannelPoints.enabled) {

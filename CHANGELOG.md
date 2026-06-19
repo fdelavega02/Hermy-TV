@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06-18
+
+- Exported public-safe bridge updates for optional Ollama reactions, local memory helpers, YouTube Super Chat/Super Sticker intake, and OBS transform commands.
+- Updated examples and docs with placeholder-only configuration for the new stream-event paths.
+- Kept live scene/source names, raw event output, generated memory, and private moderation details out of the public export.
+
 ## 2026-06-12
 
 - Added public-safe documentation for architecture, command categories, configuration, message guidelines, and private-scope exclusions.

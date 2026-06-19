@@ -13,6 +13,8 @@ It can watch Streamlabels text files, receive Streamlabs custom-widget events, p
 - Optionally generates TTS audio with ElevenLabs.
 - Runs whitelisted OBS commands through OBS WebSocket.
 - Supports Twitch channel-point reward routes for talk or OBS-command modes.
+- Supports optional YouTube Super Chat and Super Sticker polling.
+- Supports optional Ollama reactions with local memory and OpenClaw fallback.
 
 ## Setup
 
@@ -64,9 +66,24 @@ Supported command families include:
 - Switch to configured scenes.
 - Temporarily change stream bitrate within a configured range, then restore it.
 - Toggle a configured grayscale filter.
+- Optionally flip or rotate configured sources when transform commands are enabled.
 - Stop/end/kill stream only when explicitly enabled and only for the higher donation threshold.
 
 Edit `obsCommands.sourceAliases`, `obsCommands.sceneAliases`, `donationRules`, and `twitchChannelPoints.rewardRoutes` for your own stream layout.
+
+## Local Ollama
+
+Set `ollama.enabled` to `true` to try a local model first and fall back to OpenClaw when configured. The bridge can read `ollama-tv-lore.md` and write local memory under `memory.dir`; keep that generated memory private.
+
+For a terminal test chat:
+
+```bash
+npm run hermy:chat
+```
+
+## YouTube Super Chats
+
+Set `youtubeSuperChats.enabled` to `true` and provide either `liveChatId` or `broadcastVideoId`. The receiver polls YouTube live chat, normalizes Super Chats and Super Stickers, then applies the same TTS and OBS command tiers as donation-like events.
 
 ## Secrets
 
@@ -75,6 +92,7 @@ Use environment variables for secrets:
 - `ELEVENLABS_API_KEY` for TTS.
 - `ELEVENLABS_VOICE_ID` or `tts.voiceId` for the voice.
 - `TWITCH_CHANNEL_POINTS_TOKEN` for Twitch EventSub.
+- `YOUTUBE_API_KEY` or `YOUTUBE_ACCESS_TOKEN` for YouTube live chat polling.
 - `OBS_WEBSOCKET_PASSWORD` for OBS WebSocket, unless you intentionally read it from a private local OBS config file.
 
 Do not commit `config.json`, raw event logs, generated audio, or output files.
