@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-22
+
+- Added a compact Hermy live-status card for OBS browser sources, backed by runtime JSON for active effects and bitrate override timers.
+- Added matching JSON status output with a short `chatText` summary for future chat commands.
+
 ## 2026-06-18
 
 - Exported public-safe bridge updates for optional Ollama reactions, local memory helpers, YouTube Super Chat/Super Sticker intake, and OBS transform commands.

@@ -48,6 +48,10 @@
     "audioDir": "./output/audio",
     "clearAfterMs": 15000
   },
+  "statusCard": {
+    "htmlFile": "./output/hermy_status_card.html",
+    "jsonFile": "./output/hermy_status_card.json"
+  },
   "tts": {
     "enabled": false,
     "provider": "elevenlabs",
@@ -154,7 +158,19 @@
         "silent film",
         "old film",
         "bw",
-        "b&w"
+        "b&w",
+        "colorful",
+        "colourful",
+        "color back",
+        "colour back",
+        "restore color",
+        "restore colour",
+        "bring back color",
+        "bring back colour",
+        "give it its color back",
+        "give it its colour back",
+        "make it colorful",
+        "make it colourful"
       ],
       "filterName": "grayscale",
       "filterKind": "color_filter_v2",

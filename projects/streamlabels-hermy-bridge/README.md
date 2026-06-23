@@ -44,6 +44,12 @@ Run the Streamlabs/Twitch receiver:
 npm run streamlabs:receiver
 ```
 
+Generate the viewer-facing Hermy status card:
+
+```bash
+npm run status-card
+```
+
 Check OBS connectivity:
 
 ```bash
@@ -70,6 +76,20 @@ Supported command families include:
 - Stop/end/kill stream only when explicitly enabled and only for the higher donation threshold.
 
 Edit `obsCommands.sourceAliases`, `obsCommands.sceneAliases`, `donationRules`, and `twitchChannelPoints.rewardRoutes` for your own stream layout.
+
+## Viewer Status Card
+
+Run `npm run status-card` to generate:
+
+```text
+./output/hermy_status_card.html
+./output/hermy_status_card.json
+./output/hermy_runtime_status.json
+```
+
+The HTML file is meant for an OBS browser source. It is a compact live status panel showing whether channel points are listening, which effects are currently active, and whether a temporary bitrate override is counting down. The receiver updates `hermy_runtime_status.json`; the generated card polls that file and falls back to the static summary if runtime state is unavailable.
+
+The generator reads `config.json` when present and falls back to `config.example.json`. It only exposes public aliases and broad command categories, not secrets, local paths, raw logs, or private OBS source names.
 
 ## Local Ollama
 

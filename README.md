@@ -13,6 +13,7 @@ The public repo documents the shape of the system. It is not an operations dump 
 ## Projects
 
 - `projects/streamlabels-hermy-bridge`: local Streamlabels/Streamlabs/Twitch bridge for alert handling, TTS, and OBS command routing.
+- Viewer-facing status card generation for OBS browser sources and future chat status replies.
 - Twitch alert handling: donations, follows, subscription/resubscription messages, and channel-point reward routes.
 - YouTube paid-event handling: optional Super Chat and Super Sticker polling through YouTube live chat.
 - OBS scene/source automation: source toggles, scene switches, text updates, temporary bitrate changes, optional filter/transform effects, and stream-safe command filtering.

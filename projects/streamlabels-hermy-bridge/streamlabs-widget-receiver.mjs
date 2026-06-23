@@ -54,7 +54,7 @@ const DEFAULTS = {
       allowBitrateControl: true,
       grayscale: {
       enabled: true,
-      commandPatterns: ['grayscale', 'gray', 'grey', 'black and white', 'black-and-white', 'black and white mode', 'vintage', 'old movie', 'old movie mode', '1920s', "1920's", 'the 1920s', 'retro', 'silent film', 'old film', 'bw', 'b&w'],
+      commandPatterns: ['grayscale', 'gray', 'grey', 'black and white', 'black-and-white', 'black and white mode', 'vintage', 'old movie', 'old movie mode', '1920s', "1920's", 'the 1920s', 'retro', 'silent film', 'old film', 'bw', 'b&w', 'colorful', 'colourful', 'color back', 'colour back', 'restore color', 'restore colour', 'bring back color', 'bring back colour'],
       filterName: 'Grayscale',
       filterKind: 'color_filter',
       sourceAliases: ['camera', 'cam', 'banner', 'background'],
@@ -72,7 +72,7 @@ const DEFAULTS = {
       transform: {
         enabled: true,
         commandPatterns: ['upside down', 'flip 180', 'flip it 180', 'rotate 180', 'turn 180', 'turn upside down', 'turn it upside down', 'flip horizontally', 'flip it horizontally', 'flip vertical', 'flip vertically', 'flip it vertically', 'mirror horizontally', 'mirror vertically', 'back to normal', 'back to upright', 'right side up', 'normal'],
-        sourceAliases: ['camera', 'cam', 'banner', 'background', 'gameplay'],
+        sourceAliases: ['camera', 'cam', 'banner', 'background', 'rivals', 'forza 6'],
       },
       bitrate: {
         min: 500,
@@ -82,15 +82,13 @@ const DEFAULTS = {
       profileParameter: 'VBitrate',
     },
     sourceAliases: {
-      camera: { scene: 'Main', source: 'Camera' },
-      cam: { scene: 'Main', source: 'Camera' },
-      banner: { scene: 'Main', source: 'Banner' },
-      background: { scene: 'Main', source: 'Background' },
-      gameplay: { scene: 'Main', source: 'Game Capture' },
+      camera: { scene: 'Live', source: 'Camera folder' },
+      cam: { scene: 'Live', source: 'Camera folder' },
+      banner: { scene: 'Live', source: 'Banner' },
+      background: { scene: 'Live', source: 'background' },
     },
     sceneAliases: {
-      main: 'Main',
-      gameplay: 'Gameplay',
+      live: 'Live',
     },
   },
   openclaw: {
@@ -99,7 +97,7 @@ const DEFAULTS = {
     sessionId: 'streamlabs-donation-hermy-reactions',
     thinking: 'low',
     timeoutSeconds: 120,
-    prompt: "You are Hermy-TV, a Twitch/OBS stream assistant. React live on stream in 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
+    prompt: "You are Hermy-TV, Francisco's Twitch/OBS stream clone. React live on Francisco's stream in 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
   },
   ollama: {
     enabled: false,
@@ -108,7 +106,7 @@ const DEFAULTS = {
     model: 'llama3.2:3b',
     timeoutSeconds: 30,
     loreFile: './ollama-tv-lore.md',
-    prompt: "You are Hermy-TV, a Twitch.tv stream cohost. Talk normally in plain, casual English. Keep the reaction natural, stream-safe, and 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
+    prompt: "You are Hermy-TV, Francisco's Twitch.tv stream cohost. Talk normally in plain, casual English. Keep the reaction natural, stream-safe, and 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
   },
   memory: {
     enabled: true,
@@ -124,6 +122,7 @@ const DEFAULTS = {
     twitchChannelPointRawEventsFile: './output/raw_twitch_channel_point_events.jsonl',
     youtubeSuperChatLastEventFile: './output/last_youtube_super_chat_event.json',
     youtubeSuperChatRawEventsFile: './output/raw_youtube_super_chat_events.jsonl',
+    runtimeStatusFile: './output/hermy_runtime_status.json',
     audioDir: './output/audio',
     clearAfterMs: 15000,
   },
@@ -634,6 +633,62 @@ let bitrateRestoreTimer = null;
 let bitrateRestoreValue = null;
 let cachedObsClient = null;
 let cachedObsConnectPromise = null;
+const runtimeStatus = {
+  generatedAt: new Date().toISOString(),
+  listeners: {},
+  effects: {
+    grayscale: {},
+  },
+  bitrate: {
+    active: false,
+  },
+};
+
+function publicSourceName(sourceName) {
+  return String(sourceName || '')
+    .replace(/\bfolder\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Source';
+}
+
+function publicAliasName(alias) {
+  return String(alias || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase()) || 'Source';
+}
+
+async function writeRuntimeStatus(cfg) {
+  const filePath = resolveLocal(cfg.output.runtimeStatusFile);
+  runtimeStatus.generatedAt = new Date().toISOString();
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(runtimeStatus, null, 2)}\n`).catch(err => {
+    console.error('[streamlabs-widget] runtime status write failed:', err.message);
+  });
+}
+
+async function initializeRuntimeStatus(cfg) {
+  runtimeStatus.listeners = {
+    channelPoints: Boolean(cfg.twitchChannelPoints.enabled),
+    subscriptions: Boolean(cfg.twitchChannelPoints.enabled),
+    obsCommands: Boolean(cfg.obsCommands.enabled),
+  };
+  runtimeStatus.effects.grayscale = {};
+  for (const target of collectGrayscaleTargetCandidatesFromConfig(cfg)) {
+    runtimeStatus.effects.grayscale[target.sourceName] = {
+      label: publicAliasName(target.alias),
+      active: false,
+    };
+  }
+  runtimeStatus.bitrate = {
+    active: false,
+    currentKbps: null,
+    restoreToKbps: null,
+    expiresAt: null,
+  };
+  await writeRuntimeStatus(cfg);
+}
 
 function getEventArtifactName(event, fallback = 'event') {
   const rawName = event?.fileName || `${event?.source || fallback}-${event?.category || event?.type || fallback}`;
@@ -660,6 +715,13 @@ function scheduleBitrateRestore(cfg, oldBitrate) {
   if (bitrateRestoreTimer) clearTimeout(bitrateRestoreTimer);
   if (bitrateRestoreValue == null) bitrateRestoreValue = oldBitrate;
   const restoreAfterMs = Number(cfg.obsCommands.bitrate.restoreAfterMs) || 60000;
+  runtimeStatus.bitrate = {
+    active: true,
+    currentKbps: runtimeStatus.bitrate.currentKbps,
+    restoreToKbps: Number(bitrateRestoreValue) || bitrateRestoreValue,
+    expiresAt: new Date(Date.now() + restoreAfterMs).toISOString(),
+  };
+  writeRuntimeStatus(cfg);
   bitrateRestoreTimer = setTimeout(async () => {
     const restoreTo = bitrateRestoreValue;
     bitrateRestoreTimer = null;
@@ -671,6 +733,13 @@ function scheduleBitrateRestore(cfg, oldBitrate) {
         parameterName: cfg.obsCommands.bitrate.profileParameter,
         parameterValue: String(restoreTo),
       });
+      runtimeStatus.bitrate = {
+        active: false,
+        currentKbps: Number(restoreTo) || restoreTo,
+        restoreToKbps: null,
+        expiresAt: null,
+      };
+      await writeRuntimeStatus(cfg);
       console.log(`[streamlabs-widget] restored stream bitrate to ${restoreTo} kbps`);
     } catch (err) {
       console.error('[streamlabs-widget] bitrate restore failed:', err.message);
@@ -802,6 +871,7 @@ async function executeObsCommand(cfg, command) {
         parameterName: parameter,
         parameterValue: String(command.bitrate),
       });
+      runtimeStatus.bitrate.currentKbps = command.bitrate;
       scheduleBitrateRestore(cfg, oldBitrate);
       return `set stream bitrate to ${command.bitrate} kbps for ${Math.round(Number(cfg.obsCommands.bitrate.restoreAfterMs) / 1000)} seconds`;
     }
@@ -1003,6 +1073,29 @@ async function executeGrayscaleMode(cfg, obs, command) {
   const filterName = cfg.obsCommands.grayscale?.filterName || 'grayscale';
   const nextEnabled = command?.action === 'enable';
   const sourceName = command?.source;
+  if (command?.action === 'disable-all') {
+    const targets = getGrayscaleTargets(cfg);
+    if (!targets.length) return 'grayscale mode needs a target source';
+    try {
+      for (const targetSource of targets) {
+        await obs.call('SetSourceFilterEnabled', {
+          sourceName: targetSource,
+          filterName,
+          filterEnabled: false,
+        });
+        const previous = runtimeStatus.effects.grayscale[targetSource] || {};
+        runtimeStatus.effects.grayscale[targetSource] = {
+          label: previous.label || publicSourceName(targetSource),
+          active: false,
+        };
+      }
+      await writeRuntimeStatus(cfg);
+      return 'grayscale mode is off';
+    } catch (err) {
+      console.error('[streamlabs-widget] grayscale mode failed:', err.message);
+      return `grayscale mode failed: ${err.message}`;
+    }
+  }
   if (!sourceName) return 'grayscale mode needs a target source';
 
   try {
@@ -1011,6 +1104,12 @@ async function executeGrayscaleMode(cfg, obs, command) {
       filterName,
       filterEnabled: nextEnabled,
     });
+    const previous = runtimeStatus.effects.grayscale[sourceName] || {};
+    runtimeStatus.effects.grayscale[sourceName] = {
+      label: previous.label || publicSourceName(sourceName),
+      active: nextEnabled,
+    };
+    await writeRuntimeStatus(cfg);
   } catch (err) {
     console.error('[streamlabs-widget] grayscale mode failed:', err.message);
     return `grayscale mode failed: ${err.message}`;
@@ -1059,7 +1158,7 @@ async function applySceneItemTransform(obs, sceneName, sourceName, update) {
 
 async function executeTransformMode(cfg, obs, command) {
   const sourceName = command?.source;
-  const sceneName = command?.scene || 'Main';
+  const sceneName = command?.scene || 'Live';
   if (!sourceName) return 'transform mode needs a target source';
 
   try {
@@ -1142,11 +1241,14 @@ async function parseObsCommand(cfg, message) {
       : [];
     const matched = patterns.some(pattern => lower.includes(String(pattern).toLowerCase()));
     if (matched) {
+      const restoreColor = /\b(?:off|disable|turn\s+off|restore\s+colou?r|make\s+(?:it|this|the\s+(?:stream|camera|source|scene))?\s*colou?rful|colou?rful|bring\s+back\s+colou?r|bring\s+(?:it|this|the\s+(?:stream|camera|source|scene))?\s*back\s+to\s+colou?r|bring\s+(?:it|this|the\s+(?:stream|camera|source|scene))?\s*colou?r\s+back|give\s+(?:it|this|the\s+(?:stream|camera|source|scene))?\s*(?:its|the)?\s*colou?r\s+back|back\s+to\s+colou?r|back\s+to\s+normal|go\s+back\s+to\s+normal|colou?r\s+back|restore\s+.*\s+to\s+normal|return\s+.*\s+to\s+normal|normal(?:\s+colou?r)?|put\s+back\s+in\s+colou?r)\b/i.test(lower);
       const target = resolveGrayscaleTarget(cfg, lower);
       if (target.error) {
+        if (restoreColor && target.error === 'missing target') {
+          return { type: 'grayscale', action: 'disable-all' };
+        }
         return { type: 'grayscale', action: 'rejected', reason: target.error };
       }
-      const restoreColor = /\b(?:off|disable|turn\s+off|restore\s+color|bring\s+back\s+color|bring\s+the\s+color\s+back|back\s+to\s+color|back\s+to\s+normal|go\s+back\s+to\s+normal|color\s+back|give\s+.*\s+color\s+back|restore\s+.*\s+to\s+normal|return\s+.*\s+to\s+normal|normal(?:\s+color)?|put\s+back\s+in\s+color)\b/i.test(lower);
       const enableGrayscale = /\b(?:on|enable|turn\s+on|black\s+and\s+white|black and white mode|vintage|old movie|old movie mode|1920s|the 1920s|1920's|grayscale|gray|grey)\b/i.test(lower);
       if (restoreColor) {
         return { type: 'grayscale', action: 'disable', source: target.source };
@@ -1234,7 +1336,7 @@ function explainObsCommandRejection(message) {
     return 'Bitrate is allowed, but it has to be written as "set bitrate to N" and the number must be between 500 and 8000 kbps.';
   }
   if (/\bgrayscale\b|\bgray\b|\bgrey\b|\bblack\s+and\s+white\b|\bblack\s+and\s+white\s+mode\b|\bvintage\b|\bold\s+movie\b|\b1920s\b|\b1920's\b|\bbw\b|\bb&w\b/i.test(lower)) {
-    return 'Say the specific target too, like "turn camera grayscale" or "turn gameplay black and white".';
+    return 'Say the specific target too, like "turn camera grayscale" or "turn Rivals black and white".';
   }
   if (/\b(?:upside\s+down|flip|rotate|mirror|horizontal|vertical)\b/i.test(lower)) {
     return 'Flip and rotate commands are paused for now.';
@@ -1932,6 +2034,7 @@ async function pollRecentEvents(cfg, seen) {
 async function main() {
   const cfg = await loadConfig();
   const seen = new Map();
+  await initializeRuntimeStatus(cfg);
 
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin || '*';
