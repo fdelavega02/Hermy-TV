@@ -15,6 +15,10 @@ import {
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
+import {
+  buildSportsBettingContext,
+  normalizeSportsBettingConfig,
+} from './sports-betting-context.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
 const CONFIG_PATH = process.env.STREAMLABELS_HERMY_CONFIG || path.join(ROOT, 'config.json');
@@ -31,6 +35,9 @@ const DEFAULTS = {
     enabled: true,
     dir: './memory/ollama-tv',
   },
+  sportsBetting: {
+    enabled: false,
+  },
 };
 
 function resolveLocal(p) {
@@ -46,6 +53,7 @@ async function loadConfig() {
   const merged = {
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
+    sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
   };
   merged.ollama.lore = merged.ollama.loreFile
     ? (await readFile(resolveLocal(merged.ollama.loreFile), 'utf8').catch(() => '')).trim()
@@ -80,13 +88,14 @@ async function runOllama(cfg, prompt) {
   }
 }
 
-function buildPrompt(cfg, sharedMemory, history, userText, extraInstruction = '') {
+function buildPrompt(cfg, sharedMemory, history, userText, sportsBettingContext = '', extraInstruction = '') {
   return [
     cfg.ollama.prompt,
     cfg.ollama.lore ? `\nHermy-TV lore:\n${cfg.ollama.lore}` : '',
     memoryBlock(sharedMemory),
     history.length ? `\nCurrent terminal chat:\n${history.join('\n')}` : '',
     extraInstruction,
+    sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',
     '',
     `Streamer: ${userText}`,
     'Hermy-TV:',
@@ -113,12 +122,13 @@ async function main() {
 
     const override = banterOverrideForText(userText);
     const sharedMemory = override ? '' : await readSharedMemory(cfg.memory, ROOT);
-    const prompt = override ? '' : buildPrompt(cfg, sharedMemory, history.slice(-12), userText);
+    const sportsBettingContext = override ? '' : await buildSportsBettingContext(cfg.sportsBetting, userText);
+    const prompt = override ? '' : buildPrompt(cfg, sharedMemory, history.slice(-12), userText, sportsBettingContext);
     const recentResponses = await readRecentResponses(cfg.memory, ROOT);
     let response = appendGamblingDisclaimer(cleanHermyResponse(override || await runOllama(cfg, prompt)), userText);
     if (!override && looksRepeatedResponse(response, recentResponses)) {
       response = appendGamblingDisclaimer(
-        cleanHermyResponse(await runOllama(cfg, buildPrompt(cfg, sharedMemory, history.slice(-12), userText, buildAntiRepeatInstruction(recentResponses)))),
+        cleanHermyResponse(await runOllama(cfg, buildPrompt(cfg, sharedMemory, history.slice(-12), userText, sportsBettingContext, buildAntiRepeatInstruction(recentResponses)))),
         userText,
       );
     }

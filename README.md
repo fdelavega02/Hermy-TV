@@ -19,6 +19,7 @@ The public repo documents the shape of the system. It is not an operations dump 
 - OBS scene/source automation: source toggles, scene switches, text updates, temporary bitrate changes, optional filter/transform effects, and stream-safe command filtering.
 - TTS message shaping: reads viewer messages first when appropriate, then adds a short Hermy-TV reaction.
 - Local model support: optional Ollama reactions with short-term repetition avoidance and private local memory files.
+- Optional sports betting context for Ollama gambling prompts, using live/upcoming odds without storing API keys in config.
 
 ## Docs
 

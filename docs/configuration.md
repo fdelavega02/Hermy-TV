@@ -33,6 +33,7 @@ ELEVENLABS_VOICE_ID=replace-with-private-value
 TWITCH_CHANNEL_POINTS_TOKEN=replace-with-private-value
 YOUTUBE_API_KEY=replace-with-private-value
 YOUTUBE_ACCESS_TOKEN=replace-with-private-value
+THE_ODDS_API_KEY=replace-with-private-value
 OBS_WEBSOCKET_PASSWORD=replace-with-private-value
 ```
 

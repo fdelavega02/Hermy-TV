@@ -15,6 +15,7 @@ It can watch Streamlabels text files, receive Streamlabs custom-widget events, p
 - Supports Twitch channel-point reward routes for talk or OBS-command modes.
 - Supports optional YouTube Super Chat and Super Sticker polling.
 - Supports optional Ollama reactions with local memory and OpenClaw fallback.
+- Can optionally add live/upcoming sports betting lines to Ollama gambling prompts.
 
 ## Setup
 
@@ -100,6 +101,32 @@ For a terminal test chat:
 ```bash
 npm run hermy:chat
 ```
+
+### Live Sports Betting Odds for Ollama
+
+Ollama reactions can optionally fetch live/upcoming betting lines before answering gambling questions. This uses The Odds API and only passes a short, public-safe summary into the model prompt.
+
+Set the API key in the environment, not in `config.json`:
+
+```bash
+export THE_ODDS_API_KEY="replace-with-private-value"
+```
+
+Then enable the lookup:
+
+```json
+"sportsBetting": {
+  "enabled": true,
+  "apiKeyEnv": "THE_ODDS_API_KEY",
+  "regions": ["us"],
+  "markets": ["h2h", "spreads", "totals"],
+  "sports": ["basketball_nba", "americanfootball_nfl", "baseball_mlb"]
+}
+```
+
+When a viewer asks about betting, Hermy looks for a matching upcoming event across the configured sports, adds moneyline/spread/total context if found, and still ends the take with `(this isn't actual advice)`. If the key is missing, the API times out, or no matchup is found, the prompt tells Hermy not to invent odds or a confident pick.
+
+Head-to-head history is deliberately marked as unavailable until a stats/history provider is connected. Do not treat old model memory as real head-to-head data.
 
 ## YouTube Super Chats
 

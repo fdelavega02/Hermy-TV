@@ -15,6 +15,10 @@ import {
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
+import {
+  buildSportsBettingContext,
+  normalizeSportsBettingConfig,
+} from './sports-betting-context.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
 const CONFIG_PATH = process.env.STREAMLABELS_HERMY_CONFIG || path.join(ROOT, 'config.json');
@@ -46,6 +50,9 @@ const DEFAULTS = {
   memory: {
     enabled: true,
     dir: './memory/ollama-tv',
+  },
+  sportsBetting: {
+    enabled: false,
   },
   output: {
     reactionFile: './output/hermy_reaction.txt',
@@ -90,6 +97,7 @@ async function loadConfig() {
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
+    sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
     output: { ...DEFAULTS.output, ...(cfg.output ?? {}) },
     tts: {
       ...DEFAULTS.tts,
@@ -137,11 +145,12 @@ async function readEventFile(cfg, fileName) {
   };
 }
 
-function buildStreamlabelsPrompt(cfg, event, prompt, lore = '', sharedMemory = '') {
+function buildStreamlabelsPrompt(cfg, event, prompt, lore = '', sharedMemory = '', sportsBettingContext = '') {
   return [
     prompt,
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
+    sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',
     '',
     'Streamlabels event:',
     `File: ${event.fileName}`,
@@ -187,7 +196,8 @@ function runOpenClaw(cfg, event) {
 
 async function runOllama(cfg, event) {
   const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
-  const prompt = buildStreamlabelsPrompt(cfg, event, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory);
+  const sportsBettingContext = await buildSportsBettingContext(cfg.sportsBetting, event.text);
+  const prompt = buildStreamlabelsPrompt(cfg, event, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory, sportsBettingContext);
   const recentResponses = await readRecentResponses(cfg.memory, ROOT);
   const response = appendGamblingDisclaimer(cleanHermyResponse(await postOllama(cfg, prompt)), event.text);
   if (!looksRepeatedResponse(response, recentResponses)) {

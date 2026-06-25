@@ -17,6 +17,10 @@ import {
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
+import {
+  buildSportsBettingContext,
+  normalizeSportsBettingConfig,
+} from './sports-betting-context.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
 const CONFIG_PATH = process.env.STREAMLABELS_HERMY_CONFIG || path.join(ROOT, 'config.json');
@@ -111,6 +115,9 @@ const DEFAULTS = {
   memory: {
     enabled: true,
     dir: './memory/ollama-tv',
+  },
+  sportsBetting: {
+    enabled: false,
   },
   output: {
     reactionFile: './output/hermy_reaction.txt',
@@ -214,6 +221,7 @@ async function loadConfig() {
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
+    sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
     output: { ...DEFAULTS.output, ...(cfg.output ?? {}) },
     tts: {
       ...DEFAULTS.tts,
@@ -422,12 +430,13 @@ function runOpenClaw(cfg, event) {
   });
 }
 
-function buildStreamEventPrompt(basePrompt, event, lore = '', sharedMemory = '') {
+function buildStreamEventPrompt(basePrompt, event, lore = '', sharedMemory = '', sportsBettingContext = '') {
   const eventLine = describeStreamEvent(event);
   return [
     basePrompt,
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
+    sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',
     '',
     `${event.category ?? 'stream'} event:`,
     eventLine,
@@ -498,8 +507,9 @@ async function generateStreamReaction(cfg, event, fallback) {
   if (cfg.ollama.enabled) {
     try {
       const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
+      const sportsBettingContext = await buildSportsBettingContext(cfg.sportsBetting, gamblingContextForEvent(event));
       const reaction = appendGamblingDisclaimer(
-        await runOllamaPrompt(cfg, buildStreamEventPrompt(cfg.ollama.prompt, event, cfg.ollama.lore, sharedMemory)),
+        await runOllamaPrompt(cfg, buildStreamEventPrompt(cfg.ollama.prompt, event, cfg.ollama.lore, sharedMemory, sportsBettingContext)),
         gamblingContextForEvent(event),
       );
       if (reaction) return reaction;
@@ -1464,7 +1474,7 @@ function findChannelPointRoute(cfg, reward) {
   return cfg.twitchChannelPoints.rewardRoutes.find(route => channelPointRouteMatches(route, reward)) ?? null;
 }
 
-function buildChannelPointPrompt(cfg, event, route, basePrompt = cfg.openclaw.prompt, lore = '', sharedMemory = '') {
+function buildChannelPointPrompt(cfg, event, route, basePrompt = cfg.openclaw.prompt, lore = '', sharedMemory = '', sportsBettingContext = '') {
   const action = route?.mode === 'obsCommand' || route?.mode === 'obs-command'
     ? 'react to the safe OBS command result'
     : 'talk back to the viewer';
@@ -1475,6 +1485,7 @@ function buildChannelPointPrompt(cfg, event, route, basePrompt = cfg.openclaw.pr
     basePrompt,
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
+    sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',
     '',
     'Channel points redemption:',
     `Reward: ${event.reward.title || 'Untitled reward'}`,
@@ -1582,7 +1593,8 @@ async function generateChannelPointReaction(cfg, event, route, openClawPrompt, f
   if (canUseOllama && cfg.ollama.enabled) {
     try {
       const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
-      const ollamaPrompt = buildChannelPointPrompt(cfg, event, route, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory);
+      const sportsBettingContext = await buildSportsBettingContext(cfg.sportsBetting, gamblingContextForEvent(event));
+      const ollamaPrompt = buildChannelPointPrompt(cfg, event, route, cfg.ollama.prompt, cfg.ollama.lore, sharedMemory, sportsBettingContext);
       const reaction = await withTimeout(
         runOllamaPrompt(cfg, ollamaPrompt),
         Math.max(7000, (Number(cfg.ollama.timeoutSeconds) || 20) * 1000 + 2000),

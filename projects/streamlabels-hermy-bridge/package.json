@@ -10,7 +10,7 @@
     "obs": "node obs-controller.mjs",
     "status-card": "node generate-status-card.mjs",
     "streamlabs:receiver": "node streamlabs-widget-receiver.mjs",
-    "check": "node --check bridge.mjs && node --check obs-controller.mjs && node --check streamlabs-widget-receiver.mjs && node --check ollama-hermy-chat.mjs && node --check ollama-memory.mjs && node --check response-cleanup.mjs && node --check banter-overrides.mjs && node --check generate-status-card.mjs"
+    "check": "node --check bridge.mjs && node --check obs-controller.mjs && node --check streamlabs-widget-receiver.mjs && node --check ollama-hermy-chat.mjs && node --check ollama-memory.mjs && node --check response-cleanup.mjs && node --check banter-overrides.mjs && node --check generate-status-card.mjs && node --check sports-betting-context.mjs"
   },
   "dependencies": {
     "obs-websocket-js": "^5.0.8"

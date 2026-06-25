@@ -126,6 +126,32 @@
     "dedupeSeconds": 30,
     "maxResults": 200
   },
+  "sportsBetting": {
+    "enabled": false,
+    "apiKeyEnv": "THE_ODDS_API_KEY",
+    "endpointBase": "https://api.the-odds-api.com/v4",
+    "regions": [
+      "us"
+    ],
+    "markets": [
+      "h2h",
+      "spreads",
+      "totals"
+    ],
+    "oddsFormat": "american",
+    "timeoutSeconds": 8,
+    "maxEventsPerSport": 24,
+    "maxBooksPerMarket": 4,
+    "sports": [
+      "americanfootball_nfl",
+      "basketball_nba",
+      "baseball_mlb",
+      "icehockey_nhl",
+      "soccer_usa_mls",
+      "soccer_epl",
+      "soccer_uefa_champs_league"
+    ]
+  },
   "obs": {
     "address": "ws://127.0.0.1:4455",
     "passwordEnv": "OBS_WEBSOCKET_PASSWORD",

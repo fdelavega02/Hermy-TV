@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06-24
+
+- Added public-safe optional sports betting odds context for Ollama gambling prompts.
+- Documented `sportsBetting` placeholder config and `THE_ODDS_API_KEY` environment-variable usage.
+- Updated local model lore so betting replies summarize provided lines directly and avoid inventing odds or history.
+
 ## 2026-06-22
 
 - Added a compact Hermy live-status card for OBS browser sources, backed by runtime JSON for active effects and bitrate override timers.
