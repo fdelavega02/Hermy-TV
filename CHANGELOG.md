@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06-26
+
+- Refreshed README positioning around Hermy-TV's public-safe stream role, untrusted viewer input, and fake-example boundaries.
+- Added candidate public project ideas for fake-event previewing, tone packs, sanitizer examples, safe-action catalogs, status-card examples, and stream test fixtures.
+- Expanded command, message, and private-scope docs with category-level safety examples.
+
 ## 2026-06-24
 
 - Added public-safe optional sports betting odds context for Ollama gambling prompts.

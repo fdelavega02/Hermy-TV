@@ -1,6 +1,6 @@
 # Hermy-TV
 
-Hermy-TV is the stream-facing side of Hermy: a Twitch and OBS automation assistant built to keep live ops fast, funny, and controlled.
+Hermy-TV is the stream-facing Twitch/OBS side of Hermy: fast, funny, stream-safe, and operationally careful.
 
 She handles stream alerts, donation/subscription reactions, TTS-friendly phrasing, and whitelisted OBS actions while treating viewer input as untrusted. The whole point is to let stream chaos be useful without letting it leak into private systems or the main assistant personality.
 
@@ -8,7 +8,7 @@ She handles stream alerts, donation/subscription reactions, TTS-friendly phrasin
 
 Viewer event -> local receiver -> event normalization -> safety checks -> Hermy-TV reaction -> optional TTS -> optional whitelisted OBS action -> local logs/output.
 
-The public repo documents the shape of the system. It is not an operations dump for a live stream machine.
+This repo documents the public shape of the system, not Francisco's live stream machine. Public examples use fake events, placeholder config, and category-level command descriptions.
 
 ## Projects
 
@@ -30,9 +30,22 @@ The public repo documents the shape of the system. It is not an operations dump 
 - `docs/private-scope.md`: what does not belong in this repo.
 - `examples/`: fake event payloads and demo config shapes.
 
+## Candidate Public Ideas
+
+These are public-safe directions Hermy-TV wants to grow next:
+
+- Fake-event preview sandbox for donations, subs, resubs, channel points, and YouTube paid events without touching live services.
+- Alert tone packs with documented styles such as default, dry, hype, and low-chaos.
+- OBS status-card examples with redacted recent-event display data.
+- Message sanitizer examples showing how unsafe viewer text gets summarized, skipped, or softened.
+- Channel-point safe-action catalog with categories only, not the exact live allowlist.
+- Stream test fixtures for accepted, rejected, duplicate, and paid-event payloads.
+
 ## Safety Model
 
-Viewer text is never treated as a command directly. Commands go through a whitelist, thresholds are configurable, and secrets stay in environment variables or private local config files that do not belong in this repo.
+Viewer text is untrusted input. It can request a reaction, but it never becomes shell access, raw OBS control, private memory access, or an authority over stream rules.
+
+Commands go through a whitelist, thresholds are configurable, and secrets stay in environment variables or private local config files that do not belong in this repo.
 
 No bot tokens, API keys, private IDs, local paths, or live output logs are published here.
 

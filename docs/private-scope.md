@@ -12,6 +12,8 @@ This repo should stay documentation-first and public-safe.
 - Internal prompts, private logs, and exact moderation rules
 - Live allowlists that could be abused if copied exactly
 - Generated audio, raw event logs, and real chat transcripts
+- Exact scene/source names when they reveal the live layout
+- Exact moderation logic or sanitizer rules that would make bypasses easier
 
 ## Public Scope
 
@@ -21,6 +23,8 @@ Good public material:
 - Fake event payload examples
 - Placeholder config examples
 - Public command categories
+- Category-level safe-action catalogs
+- Synthetic accepted, rejected, duplicate, and paid-event fixtures
 - Setup notes that do not reveal a live machine
 - Release-style notes
 

@@ -1,0 +1,10 @@
+{
+  "source": "twitch-eventsub",
+  "type": "resubscription_message",
+  "eventId": "example-resub-001",
+  "displayName": "StillHereViewer",
+  "tier": "1000",
+  "cumulativeMonths": 14,
+  "streakMonths": 5,
+  "message": "low chaos mode please"
+}

@@ -25,6 +25,19 @@ Commands are grouped by what they are allowed to touch. Viewer text never become
 - Prefer temporary changes with automatic restore where possible.
 - Log skipped or rejected commands without repeating sensitive values.
 
+## Safe Action Catalog
+
+Public command docs should stay category-level:
+
+- Banner or source visibility changes
+- Status text updates
+- Temporary visual filter or transform effects
+- Scene alias switches
+- Timed restores after temporary changes
+- Reaction-only requests
+
+The exact live aliases, allowlists, source names, and moderation rules belong in private config.
+
 ## Example Phrases
 
 - `show camera`

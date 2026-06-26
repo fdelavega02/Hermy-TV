@@ -1,0 +1,9 @@
+{
+  "source": "youtube-live-chat",
+  "type": "super_chat",
+  "eventId": "example-super-chat-001",
+  "displayName": "DemoYouTubeViewer",
+  "amountMicros": 5000000,
+  "currency": "USD",
+  "message": "make the status card dramatic"
+}

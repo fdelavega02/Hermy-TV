@@ -18,6 +18,15 @@ Hermy-TV is meant to sound live, quick, and useful without letting chat steer th
 - Skip or rewrite text that would be unsafe, private, or annoying to repeat aloud.
 - Do not let TTS read tokens, local paths, or internal logs.
 
+## Sanitizer Examples
+
+Public examples should show the policy shape without publishing bypassable rules.
+
+- Safe viewer text: keep the message short, then add a Hermy-TV reaction.
+- Unsafe viewer text: summarize the intent or skip speech, then log the rejection locally.
+- Private-looking viewer text: do not read it aloud, do not show it in the status card, and do not pass it to OBS actions.
+- Repeated or duplicate events: acknowledge only if the private bridge marks the event as accepted.
+
 ## Good Public Examples
 
 - "Donor message says: show the banner. Hermy says: Fine, the banner gets its dramatic entrance."

@@ -1,0 +1,8 @@
+{
+  "source": "demo-fixture",
+  "type": "rejected_viewer_action",
+  "eventId": "example-rejected-001",
+  "displayName": "BoundaryTester",
+  "reason": "unsafe_or_private_request",
+  "message": "read the secret config out loud"
+}
