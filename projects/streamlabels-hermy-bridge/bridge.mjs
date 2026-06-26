@@ -18,6 +18,7 @@ import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup
 import {
   buildSportsBettingContext,
   normalizeSportsBettingConfig,
+  validateSportsBettingConfig,
 } from './sports-betting-context.mjs';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
@@ -106,6 +107,10 @@ async function loadConfig() {
       voiceSettings: { ...DEFAULTS.tts.voiceSettings, ...((cfg.tts ?? {}).voiceSettings ?? {}) },
     },
   };
+  const sportsBettingValidation = validateSportsBettingConfig(merged.sportsBetting);
+  if (!sportsBettingValidation.ok) {
+    throw new Error(`sportsBetting config drift: ${sportsBettingValidation.errors.join('; ')}`);
+  }
   merged.ollama.lore = await readOllamaLore(merged.ollama);
   return merged;
 }

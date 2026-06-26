@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "checkedAt": "2026-06-25T15:30:00.000Z",
+  "status": "ok",
+  "providerReachable": true,
+  "schemaAccepted": true,
+  "sampleCount": 12,
+  "freshness": "fresh",
+  "warnings": []
+}

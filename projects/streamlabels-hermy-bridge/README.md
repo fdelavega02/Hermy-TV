@@ -128,6 +128,21 @@ When a viewer asks about betting, Hermy looks for a matching upcoming event acro
 
 Head-to-head history is deliberately marked as unavailable until a stats/history provider is connected. Do not treat old model memory as real head-to-head data.
 
+Run a private live smoke test before relying on the odds path:
+
+```bash
+npm run sports:smoke
+```
+
+The smoke test reads the same `sportsBetting` config, verifies the configured provider path, and prints sanitized JSON only: status, schema acceptance, sample count, freshness, and sanitized failures. It does not print API keys, raw provider config, full payloads, account IDs, local paths, or private routes.
+
+The bridge also validates `sportsBetting` on startup. Unknown keys, unsupported markets, invalid URLs/formats, empty sport lists, and other drift fail clearly instead of turning into a mystery runtime failure.
+
+Synthetic example outputs are included for public docs and UI work:
+
+- `examples/sports-odds-smoke-success.json`
+- `examples/sports-odds-smoke-failure.json`
+
 ## YouTube Super Chats
 
 Set `youtubeSuperChats.enabled` to `true` and provide either `liveChatId` or `broadcastVideoId`. The receiver polls YouTube live chat, normalizes Super Chats and Super Stickers, then applies the same TTS and OBS command tiers as donation-like events.

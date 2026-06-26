@@ -1,0 +1,13 @@
+{
+  "ok": false,
+  "checkedAt": "2026-06-25T15:31:00.000Z",
+  "status": "config_failed",
+  "providerReachable": false,
+  "schemaAccepted": false,
+  "sampleCount": 0,
+  "freshness": "unknown",
+  "errors": [
+    "sportsBetting.apiKeyEnv is set, but THE_ODDS_API_KEY is not present in the environment."
+  ],
+  "warnings": []
+}

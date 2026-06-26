@@ -21,6 +21,9 @@ const DEFAULTS = {
   ],
 };
 
+const CONFIG_KEYS = new Set(Object.keys(DEFAULTS));
+const ALLOWED_MARKETS = new Set(['h2h', 'spreads', 'totals']);
+const ALLOWED_ODDS_FORMATS = new Set(['american', 'decimal']);
 const BETTING_RE = /\b(?:bet|betting|wager|gambl|odds|sportsbook|bookie|moneyline|spread|point\s+spread|over\/under|over\s+under|total|parlay|draftkings|fanduel|polymarket|smart\s+money|line)\b/i;
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'at', 'be', 'bet', 'betting', 'do', 'for', 'from', 'game', 'gamble',
@@ -39,12 +42,65 @@ export function normalizeSportsBettingConfig(raw = {}) {
   };
 }
 
+export function validateSportsBettingConfig(raw = {}, options = {}) {
+  const cfg = normalizeSportsBettingConfig(raw);
+  const errors = [];
+  const warnings = [];
+  const keys = Object.keys(raw ?? {});
+  const unknownKeys = keys.filter(key => !CONFIG_KEYS.has(key));
+
+  if (unknownKeys.length) {
+    errors.push(`sportsBetting has unknown key(s): ${unknownKeys.join(', ')}`);
+  }
+  if (options.requireEnabled && !cfg.enabled) {
+    errors.push('sportsBetting.enabled must be true for the live smoke test.');
+  }
+  if (cfg.enabled || options.requireEnabled) {
+    if (!nonEmptyString(cfg.apiKeyEnv)) errors.push('sportsBetting.apiKeyEnv must name an environment variable.');
+    if (!validHttpUrl(cfg.endpointBase)) errors.push('sportsBetting.endpointBase must be an http(s) URL.');
+    if (!cfg.regions.length) errors.push('sportsBetting.regions must include at least one region.');
+    if (!cfg.markets.length) errors.push('sportsBetting.markets must include at least one market.');
+    if (!cfg.sports.length) errors.push('sportsBetting.sports must include at least one sport key.');
+    for (const market of cfg.markets) {
+      if (!ALLOWED_MARKETS.has(market)) errors.push(`sportsBetting.markets includes unsupported market: ${market}`);
+    }
+    if (!ALLOWED_ODDS_FORMATS.has(cfg.oddsFormat)) {
+      errors.push(`sportsBetting.oddsFormat must be one of: ${[...ALLOWED_ODDS_FORMATS].join(', ')}`);
+    }
+    if (!positiveNumber(cfg.timeoutSeconds)) errors.push('sportsBetting.timeoutSeconds must be positive.');
+    if (!positiveInteger(cfg.maxEventsPerSport)) errors.push('sportsBetting.maxEventsPerSport must be a positive integer.');
+    if (!positiveInteger(cfg.maxBooksPerMarket)) errors.push('sportsBetting.maxBooksPerMarket must be a positive integer.');
+    if (options.requireApiKey && nonEmptyString(cfg.apiKeyEnv) && !process.env[cfg.apiKeyEnv]) {
+      errors.push(`sportsBetting.apiKeyEnv is set, but ${cfg.apiKeyEnv} is not present in the environment.`);
+    }
+  }
+  if (!cfg.enabled && keys.length > 1) {
+    warnings.push('sportsBetting is configured but disabled; live odds lookups will be skipped.');
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    config: cfg,
+    expectedKeys: [...CONFIG_KEYS],
+  };
+}
+
 export function isSportsBettingQuery(text) {
   return BETTING_RE.test(String(text ?? ''));
 }
 
 export async function buildSportsBettingContext(rawCfg, text) {
   const cfg = normalizeSportsBettingConfig(rawCfg);
+  const validation = validateSportsBettingConfig(cfg);
+  if (!validation.ok) {
+    return [
+      'Live betting context:',
+      '- Odds lookup config failed validation.',
+      '- Do not invent odds, head-to-head records, injuries, or a confident pick.',
+    ].join('\n');
+  }
   const query = String(text ?? '').trim();
   if (!cfg.enabled || !isSportsBettingQuery(query)) return '';
 
@@ -78,6 +134,54 @@ export async function buildSportsBettingContext(rawCfg, text) {
   }
 
   return formatOddsContext(cfg, lookup);
+}
+
+export async function buildSportsBettingSmokeReport(rawCfg = {}) {
+  const validation = validateSportsBettingConfig(rawCfg, { requireEnabled: true, requireApiKey: true });
+  const checkedAt = new Date().toISOString();
+  if (!validation.ok) {
+    return {
+      ok: false,
+      checkedAt,
+      status: 'config_failed',
+      providerReachable: false,
+      schemaAccepted: false,
+      sampleCount: 0,
+      freshness: 'unknown',
+      errors: validation.errors.map(sanitizeStatusText),
+      warnings: validation.warnings.map(sanitizeStatusText),
+    };
+  }
+
+  const cfg = validation.config;
+  const apiKey = process.env[cfg.apiKeyEnv];
+  const sport = cfg.sports[0];
+
+  try {
+    const events = await fetchSportOdds(cfg, apiKey, sport);
+    return {
+      ok: true,
+      checkedAt,
+      status: 'ok',
+      providerReachable: true,
+      schemaAccepted: true,
+      sampleCount: events.length,
+      freshness: freshnessForEvents(events),
+      warnings: validation.warnings.map(sanitizeStatusText),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      checkedAt,
+      status: 'lookup_failed',
+      providerReachable: !/timed out|abort/i.test(String(err?.message || err?.name || '')),
+      schemaAccepted: false,
+      sampleCount: 0,
+      freshness: 'unknown',
+      error: publicError(err),
+      warnings: validation.warnings.map(sanitizeStatusText),
+    };
+  }
 }
 
 async function lookupOdds(cfg, apiKey, query) {
@@ -198,6 +302,41 @@ function normalizeList(value, fallback) {
   if (Array.isArray(value)) return value.map(String).map(item => item.trim()).filter(Boolean);
   if (typeof value === 'string') return value.split(',').map(item => item.trim()).filter(Boolean);
   return fallback;
+}
+
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function positiveNumber(value) {
+  return Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function positiveInteger(value) {
+  return Number.isInteger(Number(value)) && Number(value) > 0;
+}
+
+function validHttpUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function freshnessForEvents(events) {
+  if (!events.length) return 'empty';
+  const now = Date.now();
+  const upcoming = events.some(event => {
+    const starts = Date.parse(event?.commence_time ?? '');
+    return Number.isFinite(starts) && starts >= now;
+  });
+  return upcoming ? 'fresh' : 'stale_or_missing_start_times';
+}
+
+function sanitizeStatusText(value) {
+  return String(value ?? '').replace(/[A-Za-z0-9_-]{20,}/g, '[redacted]').slice(0, 160);
 }
 
 function publicError(err) {
