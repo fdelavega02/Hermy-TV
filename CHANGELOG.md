@@ -2,6 +2,8 @@
 
 ## 2026-06-26
 
+- Added public-safe reaction packs for shared OpenClaw, Ollama, channel-point, and local chat tone control.
+- Documented built-in packs: default, cozy, rude, mean, dry, and emergency.
 - Refreshed README positioning around Hermy-TV's public-safe stream role, untrusted viewer input, and fake-example boundaries.
 - Added candidate public project ideas for fake-event previewing, tone packs, sanitizer examples, safe-action catalogs, status-card examples, and stream test fixtures.
 - Expanded command, message, and private-scope docs with category-level safety examples.

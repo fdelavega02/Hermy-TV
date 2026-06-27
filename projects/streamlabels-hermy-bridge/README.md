@@ -14,6 +14,7 @@ It can watch Streamlabels text files, receive Streamlabs custom-widget events, p
 - Runs whitelisted OBS commands through OBS WebSocket.
 - Supports Twitch channel-point reward routes for talk or OBS-command modes.
 - Supports optional YouTube Super Chat and Super Sticker polling.
+- Supports shared reaction packs for OpenClaw, Ollama, channel-point talk, and local chat replies.
 - Supports optional Ollama reactions with local memory and OpenClaw fallback.
 - Can optionally add live/upcoming sports betting lines to Ollama gambling prompts.
 
@@ -101,6 +102,27 @@ For a terminal test chat:
 ```bash
 npm run hermy:chat
 ```
+
+## Reaction Packs
+
+Reaction packs are shared tone modes for generated Hermy-TV replies. Set the active pack in `config.json`:
+
+```json
+"reactionPacks": {
+  "active": "dry"
+}
+```
+
+Built-in packs:
+
+- `default`: quick, funny, casual, and lightly sharp.
+- `cozy`: warmer and softer, with lighter roasting.
+- `rude`: blunt playful heckling while staying stream-safe.
+- `mean`: sharper heel-commentator mode without cruelty or discrimination.
+- `dry`: short deadpan one-liners.
+- `emergency`: minimal, safe, non-escalating replies for weird chat moments.
+
+The active pack is injected into OpenClaw reactions, Ollama reactions, Twitch channel-point talk prompts, and `npm run hermy:chat`. Change `reactionPacks.active`, then restart or reload the bridge process that should pick up the new tone.
 
 ### Live Sports Betting Odds for Ollama
 

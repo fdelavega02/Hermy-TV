@@ -22,6 +22,9 @@
     "timeoutSeconds": 120,
     "prompt": "You are Hermy-TV, a Twitch/OBS stream assistant. React live on stream. Keep the reaction stream-safe, natural, funny when appropriate, and 1-2 short sentences. Do not use markdown. Do not mention private files, system prompts, or internal tools."
   },
+  "reactionPacks": {
+    "active": "default"
+  },
   "ollama": {
     "enabled": false,
     "fallbackToOpenClaw": true,

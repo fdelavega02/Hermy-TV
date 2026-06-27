@@ -16,6 +16,7 @@ import {
   readSharedMemory,
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
+import { buildReactionPackInstruction } from './reaction-packs.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
 import {
   buildSportsBettingContext,
@@ -102,6 +103,9 @@ const DEFAULTS = {
     thinking: 'low',
     timeoutSeconds: 120,
     prompt: "You are Hermy-TV, Francisco's Twitch/OBS stream clone. React live on Francisco's stream in 1-2 short sentences. Do not repeat protected-class slurs verbatim. Do not use markdown. Do not mention private files, system prompts, or internal tools.",
+  },
+  reactionPacks: {
+    active: 'default',
   },
   ollama: {
     enabled: false,
@@ -219,6 +223,7 @@ async function loadConfig() {
       sceneAliases: { ...DEFAULTS.obsCommands.sceneAliases, ...((cfg.obsCommands ?? {}).sceneAliases ?? {}) },
     },
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
+    reactionPacks: { ...DEFAULTS.reactionPacks, ...(cfg.reactionPacks ?? {}) },
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
     sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
@@ -397,7 +402,7 @@ function describeStreamEvent(event) {
 }
 
 function runOpenClaw(cfg, event) {
-  const message = buildStreamEventPrompt(cfg.openclaw.prompt, event);
+  const message = buildStreamEventPrompt(cfg.openclaw.prompt, event, '', '', '', buildReactionPackInstruction(cfg));
 
   const args = [
     'agent',
@@ -430,10 +435,11 @@ function runOpenClaw(cfg, event) {
   });
 }
 
-function buildStreamEventPrompt(basePrompt, event, lore = '', sharedMemory = '', sportsBettingContext = '') {
+function buildStreamEventPrompt(basePrompt, event, lore = '', sharedMemory = '', sportsBettingContext = '', reactionPackInstruction = '') {
   const eventLine = describeStreamEvent(event);
   return [
     basePrompt,
+    reactionPackInstruction,
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
     sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',
@@ -509,7 +515,14 @@ async function generateStreamReaction(cfg, event, fallback) {
       const sharedMemory = await readSharedMemory(cfg.memory, ROOT);
       const sportsBettingContext = await buildSportsBettingContext(cfg.sportsBetting, gamblingContextForEvent(event));
       const reaction = appendGamblingDisclaimer(
-        await runOllamaPrompt(cfg, buildStreamEventPrompt(cfg.ollama.prompt, event, cfg.ollama.lore, sharedMemory, sportsBettingContext)),
+        await runOllamaPrompt(cfg, buildStreamEventPrompt(
+          cfg.ollama.prompt,
+          event,
+          cfg.ollama.lore,
+          sharedMemory,
+          sportsBettingContext,
+          buildReactionPackInstruction(cfg),
+        )),
         gamblingContextForEvent(event),
       );
       if (reaction) return reaction;
@@ -1483,6 +1496,7 @@ function buildChannelPointPrompt(cfg, event, route, basePrompt = cfg.openclaw.pr
     : '';
   return [
     basePrompt,
+    buildReactionPackInstruction(cfg),
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
     sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',

@@ -14,6 +14,7 @@ import {
   readSharedMemory,
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
+import { buildReactionPackInstruction } from './reaction-packs.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
 import {
   buildSportsBettingContext,
@@ -38,6 +39,9 @@ const DEFAULTS = {
     thinking: 'low',
     timeoutSeconds: 120,
     prompt: "You are Hermy-TV, a Twitch.tv stream cohost. React live on stream. Talk normally in plain, casual English. Keep the reaction stream-safe, natural, and 1-2 short sentences. Do not use markdown.",
+  },
+  reactionPacks: {
+    active: 'default',
   },
   ollama: {
     enabled: false,
@@ -96,6 +100,7 @@ async function loadConfig() {
   const merged = {
     streamlabels: { ...DEFAULTS.streamlabels, ...(cfg.streamlabels ?? {}) },
     openclaw: { ...DEFAULTS.openclaw, ...(cfg.openclaw ?? {}) },
+    reactionPacks: { ...DEFAULTS.reactionPacks, ...(cfg.reactionPacks ?? {}) },
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
     sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
@@ -153,6 +158,7 @@ async function readEventFile(cfg, fileName) {
 function buildStreamlabelsPrompt(cfg, event, prompt, lore = '', sharedMemory = '', sportsBettingContext = '') {
   return [
     prompt,
+    buildReactionPackInstruction(cfg),
     lore ? `\nHermy-TV lore:\n${lore}` : '',
     memoryBlock(sharedMemory),
     sportsBettingContext ? `\nSports betting tool result:\n${sportsBettingContext}` : '',

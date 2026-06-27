@@ -14,6 +14,7 @@ import {
   readSharedMemory,
 } from './ollama-memory.mjs';
 import { banterOverrideForText, isBanterOverrideText } from './banter-overrides.mjs';
+import { buildReactionPackInstruction } from './reaction-packs.mjs';
 import { appendGamblingDisclaimer, cleanHermyResponse } from './response-cleanup.mjs';
 import {
   buildSportsBettingContext,
@@ -30,6 +31,9 @@ const DEFAULTS = {
     timeoutSeconds: 60,
     loreFile: './ollama-tv-lore.md',
     prompt: "You are Hermy-TV, the local terminal version of a stream cohost. Talk normally in plain, casual English. Be casual, a little sharp when it fits, and helpful. Keep replies concise unless the streamer asks for detail.",
+  },
+  reactionPacks: {
+    active: 'default',
   },
   memory: {
     enabled: true,
@@ -52,6 +56,7 @@ async function loadConfig() {
   }
   const merged = {
     ollama: { ...DEFAULTS.ollama, ...(cfg.ollama ?? {}) },
+    reactionPacks: { ...DEFAULTS.reactionPacks, ...(cfg.reactionPacks ?? {}) },
     memory: { ...DEFAULTS.memory, ...(cfg.memory ?? {}) },
     sportsBetting: normalizeSportsBettingConfig({ ...DEFAULTS.sportsBetting, ...(cfg.sportsBetting ?? {}) }),
   };
@@ -91,6 +96,7 @@ async function runOllama(cfg, prompt) {
 function buildPrompt(cfg, sharedMemory, history, userText, sportsBettingContext = '', extraInstruction = '') {
   return [
     cfg.ollama.prompt,
+    buildReactionPackInstruction(cfg),
     cfg.ollama.lore ? `\nHermy-TV lore:\n${cfg.ollama.lore}` : '',
     memoryBlock(sharedMemory),
     history.length ? `\nCurrent terminal chat:\n${history.join('\n')}` : '',
