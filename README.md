@@ -29,6 +29,7 @@ This repo documents the public shape of the system, not Francisco's live stream 
 - `docs/configuration.md`: placeholder-only config guidance.
 - `docs/message-guidelines.md`: stream-safe reaction and TTS rules.
 - `docs/private-scope.md`: what does not belong in this repo.
+- `docs/stream-incident-drill.md`: public-safe recovery checklist for bad TTS, OBS actions, prompt bait, and model drift.
 - `examples/`: fake event payloads and demo config shapes.
 
 ## Candidate Public Ideas

@@ -124,6 +124,10 @@ Built-in packs:
 
 The active pack is injected into OpenClaw reactions, Ollama reactions, Twitch channel-point talk prompts, and `npm run hermy:chat`. Change `reactionPacks.active`, then restart or reload the bridge process that should pick up the new tone.
 
+## Incident Drill
+
+For public-safe recovery guidance, see `../../docs/stream-incident-drill.md`. The short version is: mute or hide the bad output first, pause the route that is still feeding it, switch to the `emergency` reaction pack if generated replies are drifting, then diagnose privately after the stream is stable.
+
 ### Live Sports Betting Odds for Ollama
 
 Ollama reactions can optionally fetch live/upcoming betting lines before answering gambling questions. This uses The Odds API and only passes a short, public-safe summary into the model prompt.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-27
+
+- Added a public-safe stream incident drill for bad TTS, bad OBS actions, prompt bait, and model drift.
+- Linked the drill from the root README and bridge README without publishing live paths, exact scene/source names, private routes, or raw logs.
+
 ## 2026-06-26
 
 - Added public-safe reaction packs for shared OpenClaw, Ollama, channel-point, and local chat tone control.
