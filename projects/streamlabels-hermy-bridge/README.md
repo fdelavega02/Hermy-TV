@@ -128,6 +128,20 @@ The active pack is injected into OpenClaw reactions, Ollama reactions, Twitch ch
 
 For public-safe recovery guidance, see `../../docs/stream-incident-drill.md`. The short version is: mute or hide the bad output first, pause the route that is still feeding it, switch to the `emergency` reaction pack if generated replies are drifting, then diagnose privately after the stream is stable.
 
+## Local Game Vision (prototype)
+
+`npm run game:vision` reads a configured OBS Virtual Camera V4L2 device, detects visual novelty locally, and sends a short selected frame sequence to a private Herms vision session. It can write a short reaction to the existing OBS text overlay and use the configured TTS playback path.
+
+The worker never executes OBS commands, sends Discord messages, persists captured frames, or accepts viewer input. Its local novelty detector is deliberately generic: it is not an OCR, HUD, audio, or reliable gameplay-event detector.
+
+Start disabled and validate the device and routing before enabling it:
+
+```bash
+npm run game:vision -- --validate
+```
+
+The default prototype samples a low-resolution baseline, uses a bounded in-memory pre-event buffer, permits at most five frames per analysis, cools down for a minute between episodes, and caps analyses at 12 per hour. Configure your own device node and limits in `config.json`; do not publish live capture paths, session keys, or output.
+
 ### Live Sports Betting Odds for Ollama
 
 Ollama reactions can optionally fetch live/upcoming betting lines before answering gambling questions. This uses The Odds API and only passes a short, public-safe summary into the model prompt.

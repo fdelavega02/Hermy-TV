@@ -20,6 +20,7 @@ This repo documents the public shape of the system, not Francisco's live stream 
 - TTS message shaping: reads viewer messages first when appropriate, then adds a short Hermy-TV reaction.
 - Reaction packs: shared tone modes for alert reactions, channel-point talk replies, and local model chat.
 - Local model support: optional Ollama reactions with short-term repetition avoidance and private local memory files.
+- Local game vision (prototype): bounded, in-memory OBS Virtual Camera sampling that sends selected frames to a private vision session for stream-safe overlay/TTS reactions; it has no OBS-command or Discord capability.
 - Optional sports betting context for Ollama gambling prompts, with config drift checks, sanitized private smoke-test output, public synthetic examples, and mandatory `(this isn't actual advice)` wording on gambling replies.
 
 ## Docs
@@ -42,6 +43,7 @@ These are public-safe directions Hermy-TV wants to grow next:
 - Message sanitizer examples showing how unsafe viewer text gets summarized, skipped, or softened.
 - Channel-point safe-action catalog with categories only, not the exact live allowlist.
 - Stream test fixtures for accepted, rejected, duplicate, and paid-event payloads.
+- Game-vision fixtures and profile-aware event gates that remain private until they have reproducible synthetic tests.
 
 ## Safety Model
 
