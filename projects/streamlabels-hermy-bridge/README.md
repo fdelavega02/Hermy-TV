@@ -140,6 +140,8 @@ Start disabled and validate the device and routing before enabling it:
 npm run game:vision -- --validate
 ```
 
+When enabled, a configured worker stays idle if OBS Virtual Camera is off or its device node is temporarily absent; it resumes automatically when the device returns. `--validate` remains strict and reports a missing device or placeholder routing before live use. Configure a real stream-agent target and private session key locally—those values are intentionally placeholders in this repository.
+
 The default prototype samples a low-resolution baseline, uses a bounded in-memory pre-event buffer, permits at most five frames per analysis, cools down for a minute between episodes, and caps analyses at 12 per hour. Configure your own device node and limits in `config.json`; do not publish live capture paths, session keys, or output.
 
 ### Live Sports Betting Odds for Ollama
