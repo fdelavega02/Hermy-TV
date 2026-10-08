@@ -53,7 +53,12 @@
     "episodeWidth": 1280,
     "episodeHeight": 720,
     "imageCompressionQuality": 75,
-    "reactionFile": "./output/game_vision_last_event.json"
+    "reactionFile": "./output/game_vision_last_event.json",
+    "review": {
+      "enabled": true,
+      "dir": "./output/game-vision-reviews",
+      "retain": 50
+    }
   },
   "ollama": {
     "enabled": false,

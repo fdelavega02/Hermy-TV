@@ -142,7 +142,9 @@ npm run game:vision -- --validate
 
 When enabled, a configured worker stays idle if OBS Virtual Camera is off or its device node is temporarily absent; it resumes automatically when the device returns. `--validate` remains strict and reports a missing device or placeholder routing before live use. Configure a real stream-agent target and private session key locally—those values are intentionally placeholders in this repository.
 
-The default prototype derives motion from a tiny in-memory grayscale baseline and sends only selected high-resolution episode frames to the configured private session. It permits at most five frames per analysis, cools down for a minute between episodes, and caps analyses at 12 per hour. Configure your own device node and limits in `config.json`; do not publish live capture paths, session keys, or output.
+The default prototype derives motion from a tiny in-memory grayscale baseline and sends only selected high-resolution episode frames to the configured private session. It permits at most five frames per analysis, cools down for a minute between episodes, and caps analyses at 12 per hour.
+
+Each completed analysis can write a bounded local review bundle: one JSON decision record and an `index.html` summary. These retain only thresholds, pixel delta, selected-frame timestamps/count, vision/TTS status, and a sanitized short reaction. They never retain frames, raw pixels, paths, chat, credentials, or session identifiers. Set `gameVision.review.enabled` to `false` to disable it, or adjust `retain` to bound the JSON history. Configure your own device node and limits in `config.json`; do not publish live capture paths, session keys, or output.
 
 ### Live Sports Betting Odds for Ollama
 

@@ -20,7 +20,7 @@ This repo documents the public shape of the system, not Francisco's live stream 
 - TTS message shaping: reads viewer messages first when appropriate, then adds a short Hermy-TV reaction.
 - Reaction packs: shared tone modes for alert reactions, channel-point talk replies, and local model chat.
 - Local model support: optional Ollama reactions with short-term repetition avoidance and private local memory files.
-- Local game vision (prototype): bounded, in-memory OBS Virtual Camera sampling that uses an in-memory grayscale motion baseline and sends only selected episode frames to a private vision session for stream-safe overlay/TTS reactions; it idles and resumes with the virtual camera, and has no OBS-command or Discord capability.
+- Local game vision (prototype): bounded, in-memory OBS Virtual Camera sampling that uses an in-memory grayscale motion baseline and sends only selected episode frames to a private vision session for stream-safe overlay/TTS reactions; it idles and resumes with the virtual camera, has no OBS-command or Discord capability, and can generate a bounded metadata-only local review bundle (never a frame archive).
 - Optional sports betting context for Ollama gambling prompts, with config drift checks, sanitized private smoke-test output, public synthetic examples, and mandatory `(this isn't actual advice)` wording on gambling replies.
 
 ## Docs
