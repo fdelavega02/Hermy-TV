@@ -2,7 +2,7 @@
 
 Local Node.js bridge for routing stream events into Hermy-TV reactions, TTS, and whitelisted OBS commands.
 
-It can watch Streamlabels text files, receive Streamlabs custom-widget events, poll local Streamlabels recent events when configured, and listen to Twitch EventSub channel-point redemptions. Reactions are written to an OBS-readable text file, and optional ElevenLabs TTS can speak the viewer message plus Hermy-TV's reply.
+It can watch Streamlabels text files, receive Streamlabs custom-widget events, poll local Streamlabels recent events when configured, and listen to Twitch EventSub channel-point redemptions, subscriptions, Cheers, and incoming raids. Reactions are written to an OBS-readable text file, and optional ElevenLabs TTS can speak the viewer message plus Hermy-TV's reply.
 
 ## What It Does
 
@@ -13,6 +13,7 @@ It can watch Streamlabels text files, receive Streamlabs custom-widget events, p
 - Optionally generates TTS audio with ElevenLabs.
 - Runs whitelisted OBS commands through OBS WebSocket.
 - Supports Twitch channel-point reward routes for talk or OBS-command modes.
+- Supports Twitch EventSub subscriptions, Cheers/bits, and incoming raids through the same overlay/TTS reaction path; these event routes cannot invoke OBS commands.
 - Supports optional YouTube Super Chat and Super Sticker polling.
 - Supports shared reaction packs for OpenClaw, Ollama, channel-point talk, and local chat replies.
 - Supports optional Ollama reactions with local memory and OpenClaw fallback.
@@ -197,7 +198,7 @@ Use environment variables for secrets:
 
 - `ELEVENLABS_API_KEY` for TTS.
 - `ELEVENLABS_VOICE_ID` or `tts.voiceId` for the voice.
-- `TWITCH_CHANNEL_POINTS_TOKEN` for Twitch EventSub.
+- `TWITCH_CHANNEL_POINTS_TOKEN` for Twitch EventSub. Enable only the scopes needed for configured routes: `channel:read:redemptions` for channel points, `channel:read:subscriptions` for subs/resubs, `bits:read` for Cheers, and `channel:read:raids` for incoming raids.
 - `YOUTUBE_API_KEY` or `YOUTUBE_ACCESS_TOKEN` for YouTube live chat polling.
 - `OBS_WEBSOCKET_PASSWORD` for OBS WebSocket, unless you intentionally read it from a private local OBS config file.
 

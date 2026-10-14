@@ -129,6 +129,10 @@ const DEFAULTS = {
     rawEventsFile: './output/raw_streamlabs_widget_events.jsonl',
     twitchSubscriptionLastEventFile: './output/last_twitch_subscription_event.json',
     twitchSubscriptionRawEventsFile: './output/raw_twitch_subscription_events.jsonl',
+    twitchCheerLastEventFile: './output/last_twitch_cheer_event.json',
+    twitchCheerRawEventsFile: './output/raw_twitch_cheer_events.jsonl',
+    twitchRaidLastEventFile: './output/last_twitch_raid_event.json',
+    twitchRaidRawEventsFile: './output/raw_twitch_raid_events.jsonl',
     twitchChannelPointLastEventFile: './output/last_twitch_channel_point_event.json',
     twitchChannelPointRawEventsFile: './output/raw_twitch_channel_point_events.jsonl',
     youtubeSuperChatLastEventFile: './output/last_youtube_super_chat_event.json',
@@ -392,6 +396,8 @@ function describeStreamEvent(event) {
   if (event.category === 'subscription' || event.category === 'resubscription') {
     return `${event.name} ${event.category === 'resubscription' ? 'resubscribed' : 'subscribed'}`;
   }
+  if (event.category === 'cheer') return `${event.name} cheered ${event.bits || 0} bits`;
+  if (event.category === 'raid') return `${event.name} raided with ${event.viewers || 0} viewers`;
   if (event.category === 'youtube-super-chat') {
     return `${event.name}${event.amount ? ` sent ${event.amount} in Super Chat` : ' sent a Super Chat'}`;
   }
@@ -1417,6 +1423,9 @@ async function appendTwitchSubscriptionEvent(cfg, raw) {
   await appendFile(rawEventsFile, `${JSON.stringify({ seenAt: new Date().toISOString(), raw })}\n`);
 }
 
+async function appendTwitchCheerEvent(cfg, raw) { const file = resolveLocal(cfg.output.twitchCheerRawEventsFile); mkdirSync(path.dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ seenAt: new Date().toISOString(), raw })}\n`); }
+async function appendTwitchRaidEvent(cfg, raw) { const file = resolveLocal(cfg.output.twitchRaidRawEventsFile); mkdirSync(path.dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ seenAt: new Date().toISOString(), raw })}\n`); }
+
 function normalizeChannelPointEvent(raw) {
   const reward = raw.reward ?? {};
   const status = String(raw.status ?? '').toLowerCase();
@@ -1473,6 +1482,9 @@ function normalizeTwitchSubscriptionEvent(raw, subscriptionType) {
 
   return null;
 }
+
+function normalizeTwitchCheerEvent(raw) { return { source: 'twitch-eventsub', category: 'cheer', type: 'cheer', name: raw.is_anonymous ? 'Anonymous' : String(raw.user_name ?? raw.user_login ?? 'Someone'), bits: Number(raw.bits ?? 0), message: String(raw.message ?? ''), isAnonymous: Boolean(raw.is_anonymous), raw, seenAt: new Date().toISOString() }; }
+function normalizeTwitchRaidEvent(raw) { return { source: 'twitch-eventsub', category: 'raid', type: 'raid', name: String(raw.from_broadcaster_user_name ?? raw.from_broadcaster_user_login ?? 'Someone'), viewers: Number(raw.viewers ?? 0), raw, seenAt: new Date().toISOString() }; }
 
 function channelPointRouteMatches(route, reward) {
   if (!route || !reward) return false;
@@ -1826,9 +1838,9 @@ async function createTwitchEventSubSubscription(cfg, sessionId, type) {
     body: JSON.stringify({
       type,
       version: '1',
-      condition: {
-        broadcaster_user_id: cfg.twitchChannelPoints.broadcasterUserId,
-      },
+      condition: type === 'channel.raid'
+        ? { to_broadcaster_user_id: cfg.twitchChannelPoints.broadcasterUserId }
+        : { broadcaster_user_id: cfg.twitchChannelPoints.broadcasterUserId },
       transport: {
         method: 'websocket',
         session_id: sessionId,
@@ -1877,6 +1889,8 @@ function startTwitchEventSubListener(cfg) {
             'channel.channel_points_custom_reward_redemption.add',
             'channel.subscribe',
             'channel.subscription.message',
+            'channel.cheer',
+            'channel.raid',
           ];
           const results = await Promise.allSettled(
             subscriptionTypes.map(type => createTwitchEventSubSubscription(cfg, currentSessionId, type)),
@@ -1955,6 +1969,28 @@ function startTwitchEventSubListener(cfg) {
           handleWidgetEvent(cfg, event, cfg.output.twitchSubscriptionLastEventFile).catch(err => {
             console.error('[streamlabs-widget] twitch subscription handling failed:', err.message);
           });
+          return;
+        }
+
+        if (subscriptionType === 'channel.cheer') {
+          const event = normalizeTwitchCheerEvent(rawEvent);
+          const key = hash({ type: subscriptionType, user: event.name, bits: event.bits, message: event.message, seenAt: payload.metadata?.message_id });
+          const now = Date.now(); const lastSeen = seen.get(key);
+          if (lastSeen && now - lastSeen < Number(cfg.twitchChannelPoints.dedupeSeconds) * 1000) return;
+          seen.set(key, now);
+          await appendTwitchCheerEvent(cfg, rawEvent);
+          handleWidgetEvent(cfg, event, cfg.output.twitchCheerLastEventFile).catch(err => console.error('[streamlabs-widget] twitch cheer handling failed:', err.message));
+          return;
+        }
+
+        if (subscriptionType === 'channel.raid') {
+          const event = normalizeTwitchRaidEvent(rawEvent);
+          const key = hash({ type: subscriptionType, from: event.name, viewers: event.viewers, seenAt: payload.metadata?.message_id });
+          const now = Date.now(); const lastSeen = seen.get(key);
+          if (lastSeen && now - lastSeen < Number(cfg.twitchChannelPoints.dedupeSeconds) * 1000) return;
+          seen.set(key, now);
+          await appendTwitchRaidEvent(cfg, rawEvent);
+          handleWidgetEvent(cfg, event, cfg.output.twitchRaidLastEventFile).catch(err => console.error('[streamlabs-widget] twitch raid handling failed:', err.message));
         }
       } catch (err) {
         console.error('[streamlabs-widget] twitch eventsub message parse failed:', err.message);

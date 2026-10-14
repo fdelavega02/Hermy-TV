@@ -14,7 +14,7 @@ This repo documents the public shape of the system, not Francisco's live stream 
 
 - `projects/streamlabels-hermy-bridge`: local Streamlabels/Streamlabs/Twitch bridge for alert handling, TTS, and OBS command routing.
 - Viewer-facing status card generation for OBS browser sources and future chat status replies.
-- Twitch alert handling: donations, follows, subscription/resubscription messages, and channel-point reward routes.
+- Twitch alert handling: donations, follows, subscription/resubscription messages, Cheers/bits, incoming raids, and channel-point reward routes. EventSub alert routes use the standard overlay/TTS path and cannot invoke OBS commands.
 - YouTube paid-event handling: optional Super Chat and Super Sticker polling through YouTube live chat.
 - OBS scene/source automation: source toggles, scene switches, text updates, temporary bitrate changes, optional filter/transform effects, and stream-safe command filtering.
 - TTS message shaping: reads viewer messages first when appropriate, then adds a short Hermy-TV reaction.
