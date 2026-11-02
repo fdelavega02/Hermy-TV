@@ -13,6 +13,7 @@ This repo documents the public shape of the system, not Francisco's live stream 
 ## Projects
 
 - `projects/streamlabels-hermy-bridge`: local Streamlabels/Streamlabs/Twitch bridge for alert handling, TTS, and OBS command routing.
+- `projects/ptt-voice-relay`: generic Linux Ctrl+Fn hold-to-talk listener for a local voice-relay API; it is a reference component, not a copy of a live setup.
 - Viewer-facing status card generation for OBS browser sources and future chat status replies.
 - Twitch alert handling: donations, follows, subscription/resubscription messages, Cheers/bits, incoming raids, and channel-point reward routes. EventSub alert routes use the standard overlay/TTS path and cannot invoke OBS commands.
 - YouTube paid-event handling: optional Super Chat and Super Sticker polling through YouTube live chat.

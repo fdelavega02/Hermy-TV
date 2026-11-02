@@ -1,0 +1,10 @@
+{
+  "serverUrl": "http://127.0.0.1:8787",
+  "inputDevice": "/dev/input/by-id/REPLACE_WITH_YOUR_KEYBOARD-event-kbd",
+  "profiles": {
+    "F1": "voice",
+    "F2": "music",
+    "F3": "stream-agent",
+    "F4": "local-model"
+  }
+}
